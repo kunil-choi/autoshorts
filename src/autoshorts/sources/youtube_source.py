@@ -102,14 +102,15 @@ class YouTubeSource(MediaSource):
             raise ValueError(f"no duration available for video {self.id}")
         return float(duration)
 
-    def captions_vtt(self, lang: str = "ko") -> Path | None:
-        """Try to fetch existing (manual or auto-generated) captions as vtt.
+    def captions_vtt(self, work_dir: Path, lang: str = "ko") -> Path | None:
+        """Try to fetch existing (manual or auto-generated) captions as vtt,
+        written under work_dir (the caller's job-specific directory - see
+        MediaSource.captions_vtt).
 
         Returns the path to the .vtt file, or None if no captions were available.
         """
-        out_dir = Path(os.environ.get("AUTOSHORTS_WORK_DIR", "work")) / self.id
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_tmpl = str(out_dir / self.id)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        out_tmpl = str(work_dir / self.id)
         ydl_opts = _base_ydl_opts(
             {
                 "skip_download": True,
@@ -129,7 +130,7 @@ class YouTubeSource(MediaSource):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([self.url])
 
-        candidates = list(out_dir.glob(f"{self.id}*.{lang}.vtt"))
+        candidates = list(work_dir.glob(f"{self.id}*.{lang}.vtt"))
         return candidates[0] if candidates else None
 
     def extract_audio(self, out_dir: Path) -> Path:

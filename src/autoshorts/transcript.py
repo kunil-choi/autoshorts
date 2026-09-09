@@ -70,7 +70,7 @@ def get_transcript_for_source(source, work_dir: Path, lang: str = "ko") -> tuple
     """Return (segments, source_label) where source_label is 'captions' or
     'whisper' - tries the MediaSource's own captions first, falls back to
     whisper on its extracted audio."""
-    vtt_path = source.captions_vtt(lang=lang)
+    vtt_path = source.captions_vtt(work_dir, lang=lang)
     if vtt_path is not None:
         segments = parse_vtt(vtt_path)
         if segments:

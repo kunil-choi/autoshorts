@@ -136,6 +136,11 @@
 
     function seekTo(sec) {
       if (isYoutube) {
+        // this is the same postMessage the official iframe_api JS sends
+        // under the hood, so it works against the embed (enablejsapi=1)
+        // directly with no extra script to load - it can just silently
+        // miss if sent in the first instant after the iframe first loads,
+        // before the embedded player's own listener is attached.
         const iframe = document.getElementById('yt-player');
         iframe.contentWindow.postMessage(JSON.stringify({
           event: 'command', func: 'seekTo', args: [sec, true]
@@ -262,9 +267,5 @@
       }
     }
   </script>
-
-  {% if is_youtube %}
-  <script src="https://www.youtube.com/iframe_api"></script>
-  {% endif %}
 </body>
 </html>

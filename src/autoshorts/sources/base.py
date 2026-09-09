@@ -20,10 +20,11 @@ class MediaSource(Protocol):
         """Total length of the source video, in seconds."""
         ...
 
-    def captions_vtt(self, lang: str = "ko") -> Path | None:
-        """Existing (manual/auto) captions as a vtt file, or None if there
-        are none to fetch - e.g. an uploaded file always returns None here,
-        since only a published YouTube video can have platform captions."""
+    def captions_vtt(self, work_dir: Path, lang: str = "ko") -> Path | None:
+        """Existing (manual/auto) captions as a vtt file under work_dir, or
+        None if there are none to fetch - e.g. an uploaded file always
+        returns None here, since only a published YouTube video can have
+        platform captions."""
         ...
 
     def extract_audio(self, out_dir: Path) -> Path:

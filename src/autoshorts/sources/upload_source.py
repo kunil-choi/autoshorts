@@ -31,7 +31,7 @@ class UploadedFileSource(MediaSource):
         ).stdout.strip()
         return float(out)
 
-    def captions_vtt(self, lang: str = "ko") -> Path | None:
+    def captions_vtt(self, work_dir: Path, lang: str = "ko") -> Path | None:
         # an uploaded file was never published, so there is no platform
         # captions track to fetch - transcript.py always falls back to
         # whisper on extract_audio() for this source.
