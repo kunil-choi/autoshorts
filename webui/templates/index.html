@@ -3,9 +3,87 @@
 <head>
   <meta charset="utf-8">
   <title>autoshorts</title>
+  <style>
+    body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    fieldset { margin-bottom: 16px; padding: 12px; }
+    label { display: block; margin: 6px 0; }
+    #status { margin-top: 16px; padding: 10px; background: #f2f2f2; border-radius: 6px; display: none; }
+    #status.error { background: #fde2e2; }
+    button { padding: 8px 16px; font-size: 15px; }
+  </style>
 </head>
 <body>
   <h1>autoshorts</h1>
-  <p>쇼츠 후보 추천 · 리뷰 · 렌더링 도구 - 화면은 아직 준비 중입니다.</p>
+  <p>1단계: 링크 또는 원본 파일을 넣고, 분석 조건을 골라주세요.</p>
+
+  <form id="job-form">
+    <fieldset>
+      <legend>1. 입력</legend>
+      <label><input type="radio" name="source_type" value="url" checked> 유튜브 링크</label>
+      <input type="text" name="url" placeholder="https://www.youtube.com/watch?v=..." style="width:100%">
+      <label style="margin-top:10px"><input type="radio" name="source_type" value="upload"> 원본 파일 업로드</label>
+      <input type="file" name="file" accept="video/*">
+    </fieldset>
+
+    <fieldset>
+      <legend>3. 조건 선택</legend>
+      <label><input type="checkbox" name="tiers" value="hook" checked> A. 훅이 강한 부분</label>
+      <label><input type="checkbox" name="tiers" value="substantive" checked> B. 내용상 중요한 부분</label>
+      <label>C. 직접 입력한 주제 (선택)
+        <input type="text" name="custom_topic" placeholder="예: 금리 인상 관련 발언" style="width:100%">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>4. 목표 길이</legend>
+      <select name="clip_length">
+        {% for preset in clip_length_presets %}
+        <option value="{{ preset.key }}" {% if preset.key == default_clip_length %}selected{% endif %}>{{ preset.label }}</option>
+        {% endfor %}
+      </select>
+    </fieldset>
+
+    <button type="submit">분석 시작</button>
+  </form>
+
+  <div id="status"></div>
+
+  <script>
+    const form = document.getElementById('job-form');
+    const statusEl = document.getElementById('status');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.style.display = 'block';
+      statusEl.classList.remove('error');
+      statusEl.textContent = '작업을 시작합니다...';
+
+      const formData = new FormData(form);
+      let jobId;
+      try {
+        const res = await fetch('/jobs', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(await res.text());
+        ({ job_id: jobId } = await res.json());
+      } catch (err) {
+        statusEl.classList.add('error');
+        statusEl.textContent = '오류: ' + err.message;
+        return;
+      }
+
+      const poll = async () => {
+        const res = await fetch(`/jobs/${jobId}`);
+        const data = await res.json();
+        statusEl.textContent = data.message || data.status;
+        if (data.status === 'ready') {
+          window.location.href = `/jobs/${jobId}/review`;
+        } else if (data.status === 'error') {
+          statusEl.classList.add('error');
+        } else {
+          setTimeout(poll, 2000);
+        }
+      };
+      poll();
+    });
+  </script>
 </body>
 </html>

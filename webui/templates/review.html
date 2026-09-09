@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>autoshorts - 리뷰</title>
+  <style>
+    body { font-family: -apple-system, "Malgun Gothic", sans-serif; margin: 0; padding: 16px; }
+    h2 { margin: 4px 0 12px; font-size: 16px; }
+    .layout { display: flex; gap: 20px; align-items: flex-start; }
+    .left { flex: 0 0 380px; position: sticky; top: 16px; }
+    .right { flex: 1; min-width: 0; }
+    #player-frame, #upload-player { width: 380px; height: 214px; background: #000; }
+    .candidates { margin-bottom: 16px; }
+    .candidate { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-bottom: 6px; font-size: 13px; }
+    .candidate .tier { display: inline-block; font-size: 11px; background: #eee; padding: 1px 6px; border-radius: 10px; margin-bottom: 4px; }
+    .candidate button { font-size: 12px; padding: 2px 8px; }
+    .segments { max-height: 480px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; }
+    .segment { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; cursor: pointer; font-size: 14px; }
+    .segment:hover { background: #f7f7f7; }
+    .segment.selected { background: #dbeafe; }
+    .segment .t { color: #888; font-size: 12px; margin-right: 8px; }
+    .actions { margin: 12px 0; }
+    button.primary { padding: 8px 16px; font-size: 15px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    button.primary:disabled { background: #aaa; }
+    #build-section, #final-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid #ddd; display: none; }
+    .caption-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .caption-row .t { flex: 0 0 110px; color: #888; font-size: 12px; }
+    .caption-row input { flex: 1; }
+    #status { margin: 10px 0; padding: 8px; background: #f2f2f2; border-radius: 6px; }
+    #status.error { background: #fde2e2; }
+    #status:empty { display: none; }
+    .field { margin: 10px 0; }
+    .field label { display: block; margin-bottom: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>{{ video_title }}</h1>
+
+  <div class="layout">
+    <div class="left">
+      {% if is_youtube %}
+        <div id="player-frame">
+          <iframe id="yt-player" width="380" height="214"
+            src="https://www.youtube.com/embed/{{ youtube_id }}?enablejsapi=1"
+            frameborder="0" allow="autoplay"></iframe>
+        </div>
+      {% else %}
+        <video id="upload-player" controls src="/jobs/{{ job_id }}/source-media"></video>
+      {% endif %}
+
+      <div class="candidates">
+        <h2>AI 추천 후보</h2>
+        {% for c in candidates %}
+        <div class="candidate">
+          <span class="tier">{{ c.tier_label }}</span>
+          <div><strong>{{ c.title }}</strong></div>
+          <div>{{ c.summary }}</div>
+          <button type="button" onclick="selectCandidate({{ loop.index0 }})">이 구간 선택</button>
+        </div>
+        {% else %}
+        <p>추천 후보가 없습니다.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="right">
+      <h2>5-6. 자막에서 쇼츠로 만들 구간을 클릭해서 선택하세요 (여러 구간 선택 가능, 하드컷으로 이어붙여집니다)</h2>
+      <div class="segments" id="segments"></div>
+
+      <div class="actions">
+        <button class="primary" id="build-draft-btn" onclick="buildDraft()">7. 초안 만들기</button>
+      </div>
+
+      <div id="status"></div>
+
+      <div id="build-section">
+        <h2>7. 초안 확인 - 자막 오타를 수정하세요</h2>
+        <video id="draft-player" controls style="width:100%;max-width:480px"></video>
+        <div id="caption-editor"></div>
+      </div>
+
+      <div id="final-section">
+        <h2>8. 메타데이터</h2>
+        <div class="field">
+          <label>썸네일 문구 (2줄, 줄바꿈으로 구분)</label>
+          <textarea id="thumbnail_text" rows="2" style="width:100%"></textarea>
+        </div>
+        <div class="field">
+          <label>출연자 이름</label>
+          <input type="text" id="guest_label" style="width:100%" value="{{ guest_label_guess }}">
+        </div>
+        <div class="field">
+          <label>좌상단 로고 이미지</label>
+          <input type="file" id="logo_top_left" accept="image/*">
+        </div>
+        <div class="field">
+          <label>우상단 로고 이미지</label>
+          <input type="file" id="logo_top_right" accept="image/*">
+        </div>
+        <div class="field">
+          <label>하단 이미지</label>
+          <input type="file" id="banner_bottom" accept="image/*">
+        </div>
+        <button class="primary" onclick="renderFinal()">9. 최종 렌더링</button>
+
+        <div id="final-result" style="margin-top:16px"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const jobId = {{ job_id | tojson }};
+    const isYoutube = {{ is_youtube | tojson }};
+    const segments = {{ segments_json | safe }};
+    const candidates = {{ candidates_json | safe }};
+    let currentBuildId = null;
+
+    function fmt(sec) {
+      sec = Math.round(sec);
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    const segmentsEl = document.getElementById('segments');
+    segments.forEach((seg, i) => {
+      const div = document.createElement('div');
+      div.className = 'segment';
+      div.dataset.idx = i;
+      div.innerHTML = `<span class="t">${fmt(seg.start_sec)}-${fmt(seg.end_sec)}</span>${seg.text}`;
+      div.addEventListener('click', () => {
+        div.classList.toggle('selected');
+        seekTo(seg.start_sec);
+      });
+      segmentsEl.appendChild(div);
+    });
+
+    function seekTo(sec) {
+      if (isYoutube) {
+        const iframe = document.getElementById('yt-player');
+        iframe.contentWindow.postMessage(JSON.stringify({
+          event: 'command', func: 'seekTo', args: [sec, true]
+        }), '*');
+      } else {
+        const video = document.getElementById('upload-player');
+        video.currentTime = sec;
+        video.play();
+      }
+    }
+
+    function selectCandidate(idx) {
+      const cand = candidates[idx];
+      document.querySelectorAll('.segment').forEach(el => el.classList.remove('selected'));
+      cand.ranges.forEach(r => {
+        segments.forEach((seg, i) => {
+          if (seg.end_sec > r.start_sec && seg.start_sec < r.end_sec) {
+            segmentsEl.children[i].classList.add('selected');
+          }
+        });
+      });
+      document.getElementById('thumbnail_text').value = cand.thumbnail_text || '';
+      if (cand.ranges.length) seekTo(cand.ranges[0].start_sec);
+    }
+
+    function selectedRanges() {
+      const selectedIdx = [...document.querySelectorAll('.segment.selected')]
+        .map(el => parseInt(el.dataset.idx)).sort((a,b) => a-b);
+      const ranges = [];
+      let start = null, prev = null;
+      for (const i of selectedIdx) {
+        if (start === null) { start = segments[i].start_sec; }
+        else if (prev !== i - 1) {
+          ranges.push([start, segments[prev].end_sec]);
+          start = segments[i].start_sec;
+        }
+        prev = i;
+      }
+      if (start !== null) ranges.push([start, segments[prev].end_sec]);
+      return ranges;
+    }
+
+    function setStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.textContent = msg || '';
+      el.classList.toggle('error', !!isError);
+    }
+
+    async function buildDraft() {
+      const ranges = selectedRanges();
+      if (!ranges.length) { setStatus('구간을 먼저 선택하세요.', true); return; }
+
+      const formData = new FormData();
+      formData.append('ranges', JSON.stringify(ranges));
+      setStatus('구간 추출 중...');
+      const res = await fetch(`/jobs/${jobId}/builds`, { method: 'POST', body: formData });
+      if (!res.ok) { setStatus('오류: ' + await res.text(), true); return; }
+      const data = await res.json();
+      currentBuildId = data.build_id;
+      pollBuild();
+    }
+
+    async function pollBuild() {
+      const res = await fetch(`/builds/${currentBuildId}`);
+      const data = await res.json();
+      setStatus(data.message || data.status);
+      if (data.status === 'draft_ready') {
+        document.getElementById('build-section').style.display = 'block';
+        document.getElementById('final-section').style.display = 'block';
+        document.getElementById('draft-player').src = `/builds/${currentBuildId}/draft.mp4`;
+        renderCaptionEditor(data.cues);
+      } else if (data.status === 'error') {
+        // status already shown as error
+      } else {
+        setTimeout(pollBuild, 2000);
+      }
+    }
+
+    function renderCaptionEditor(cues) {
+      const el = document.getElementById('caption-editor');
+      el.innerHTML = '';
+      cues.forEach((cue, i) => {
+        const row = document.createElement('div');
+        row.className = 'caption-row';
+        row.innerHTML = `<span class="t">${fmt(cue[0])}-${fmt(cue[1])}</span>
+          <input type="text" data-idx="${i}" value="${cue[2].replace(/"/g, '&quot;')}">`;
+        el.appendChild(row);
+      });
+      el.dataset.cues = JSON.stringify(cues);
+    }
+
+    async function renderFinal() {
+      const cues = JSON.parse(document.getElementById('caption-editor').dataset.cues || '[]');
+      const inputs = document.querySelectorAll('#caption-editor input');
+      const captions = cues.map((cue, i) => [cue[0], cue[1], inputs[i].value]);
+
+      const formData = new FormData();
+      formData.append('captions', JSON.stringify(captions));
+      formData.append('thumbnail_text', document.getElementById('thumbnail_text').value);
+      formData.append('guest_label', document.getElementById('guest_label').value);
+      for (const id of ['logo_top_left', 'logo_top_right', 'banner_bottom']) {
+        const fileInput = document.getElementById(id);
+        if (fileInput.files.length) formData.append(id, fileInput.files[0]);
+      }
+
+      setStatus('최종 렌더링 요청 중...');
+      const res = await fetch(`/builds/${currentBuildId}/final`, { method: 'POST', body: formData });
+      if (!res.ok) { setStatus('오류: ' + await res.text(), true); return; }
+      pollFinal();
+    }
+
+    async function pollFinal() {
+      const res = await fetch(`/builds/${currentBuildId}`);
+      const data = await res.json();
+      setStatus(data.message || data.status);
+      if (data.status === 'done') {
+        document.getElementById('final-result').innerHTML =
+          `<video controls style="width:100%;max-width:480px" src="/builds/${currentBuildId}/final.mp4"></video>
+           <p><a href="/builds/${currentBuildId}/final.mp4" download>완성된 쇼츠 다운로드</a></p>`;
+      } else if (data.status === 'error') {
+        // status already shown as error
+      } else {
+        setTimeout(pollFinal, 2000);
+      }
+    }
+  </script>
+
+  {% if is_youtube %}
+  <script src="https://www.youtube.com/iframe_api"></script>
+  {% endif %}
+</body>
+</html>
