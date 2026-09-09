@@ -29,12 +29,27 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# a PyInstaller-frozen (onedir) build has two distinct base paths, and
+# conflating them was a real bug caught by test-building this spec: bundled
+# read-only data (templates/, static/ - see installer/autoshorts.spec)
+# lands under sys._MEIPASS (PyInstaller >= 6 puts this in an _internal/
+# subfolder next to the exe), while user-facing/writable things (.env,
+# work/, ffmpeg_bin/ - see installer/launcher.py) belong directly next to
+# the exe itself, i.e. sys.executable's directory. __file__ points inside
+# the frozen bundle's internals and isn't usable as a base path at all in
+# this mode. Dev mode (plain `uvicorn webui.server:app`) is unaffected -
+# it keeps using __file__ exactly as before.
+if getattr(sys, "frozen", False):
+    REPO_ROOT = Path(sys.executable).resolve().parent
+    WEBUI_DIR = Path(sys._MEIPASS)
+else:
+    WEBUI_DIR = Path(__file__).resolve().parent
+    REPO_ROOT = WEBUI_DIR.parent
+    SRC_DIR = REPO_ROOT / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+load_dotenv(REPO_ROOT / ".env")
 
 from autoshorts import analyze, clipbuild, render  # noqa: E402
 from autoshorts.config import CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, get_clip_length_preset  # noqa: E402
@@ -45,9 +60,9 @@ WORK_DIR = REPO_ROOT / "work"
 WORK_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="autoshorts")
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+templates = Jinja2Templates(directory=str(WEBUI_DIR / "templates"))
 app.mount(
-    "/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static"
+    "/static", StaticFiles(directory=str(WEBUI_DIR / "static")), name="static"
 )
 
 JOBS: dict[str, dict] = {}

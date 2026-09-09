@@ -46,7 +46,7 @@ source → clipbuild → render_draft → render_final 전체 흐름과 webui의
 그 구간만 반환)을 따르므로 실제 사용 전에 한 번 확인이 필요하다.
 
 아직 없는 것: 로그인/부서별 권한, 여러 부서가 동시에 써도 안전한 데이터 저장
-구조(지금은 `data/`에 커밋하는 방식도 아직 붙이지 않음), 배포용 설치 패키지.
+구조(지금은 `data/`에 커밋하는 방식도 아직 붙이지 않음).
 
 ## 설정
 
@@ -78,3 +78,31 @@ pytest
 유튜브 다운로드·Claude API 호출처럼 외부 네트워크가 필요한 부분은 유닛 테스트로
 검증할 수 없어서, 정규식 매칭/자막 파싱/ffmpeg 필터 그래프 구성 같은 순수 로직만
 테스트로 커버했다.
+
+## 다른 부서에 배포하기 (Windows 원클릭 설치파일 만들기)
+
+이 프로젝트의 원래 문제의식 - "파이썬 설치/venv 같은 게 너무 개인화 돼 있어서
+공유하기 어렵다" - 를 해결하기 위해, Python/ffmpeg를 몰라도 되는 배포용 실행파일을
+`installer/`에서 빌드할 수 있다. **Windows에서 딱 한 번 실행**하면 된다:
+
+```bat
+installer\build.bat
+```
+
+이 스크립트가 하는 일:
+1. 가상환경 생성 + `requirements.txt`/`pyinstaller` 설치
+2. 정적 ffmpeg 빌드를 다운로드해 `installer/ffmpeg_bin/`에 준비
+3. PyInstaller로 `dist/autoshorts/` 폴더에 `autoshorts.exe` 빌드
+4. ffmpeg와 `.env.example`을 그 폴더로 복사
+
+빌드가 끝나면 `dist/autoshorts/` **폴더 전체**가 배포 가능한 결과물이다 - 이
+폴더를 zip으로 압축해서 다른 부서 PC에 풀어주면, 그쪽은 Python도 ffmpeg도
+설치할 필요 없이 `autoshorts.exe`만 더블클릭하면 된다 (`.env` 파일이 없으면
+`.env.example`을 자동으로 복사해주니, 그 파일을 열어 `ANTHROPIC_API_KEY`만
+채우면 끝).
+
+> **참고**: 이 레포를 만든 빌드 환경 자체가 리눅스라 실제 Windows .exe를 직접
+> 만들어볼 수는 없었다 - PyInstaller의 패키징 분석 단계(의존성 추적, 데이터 파일
+> 배치)는 리눅스에서도 동일하게 동작하므로 그 부분은 실제로 빌드까지 해보고
+> 검증했지만, Windows 바이너리 자체의 동작은 검증 전이다. 처음 `build.bat`를
+> 돌렸을 때 안 되는 부분이 있으면 로그를 그대로 알려주면 된다.
