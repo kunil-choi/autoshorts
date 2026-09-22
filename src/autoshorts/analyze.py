@@ -243,20 +243,31 @@ def _propose_candidates_for_tier(
 
     candidates: list[Candidate] = []
     for c in raw_candidates:
-        start = _hms_to_sec(c["start_hms"])
-        end = _hms_to_sec(c["end_hms"])
-        if end <= start:
+        # tool_choice forces this schema, but don't let one malformed entry
+        # (seen in practice: a candidate coming back as something other
+        # than the expected object) take down the whole tier's results -
+        # skip it and keep whatever candidates did parse correctly.
+        if not isinstance(c, dict):
+            print(f"[analyze] skipping malformed {tier} candidate (not an object): {c!r}")
             continue
-        candidates.append(
-            Candidate(
-                ranges=[ClipRange(start_sec=start, end_sec=end)],
-                title=c["title"],
-                summary=c["summary"],
-                thumbnail_text=c["thumbnail_text"],
-                reason=c["reason"],
-                tier=tier,
+        try:
+            start = _hms_to_sec(c["start_hms"])
+            end = _hms_to_sec(c["end_hms"])
+            if end <= start:
+                continue
+            candidates.append(
+                Candidate(
+                    ranges=[ClipRange(start_sec=start, end_sec=end)],
+                    title=c["title"],
+                    summary=c["summary"],
+                    thumbnail_text=c["thumbnail_text"],
+                    reason=c["reason"],
+                    tier=tier,
+                )
             )
-        )
+        except (KeyError, ValueError) as e:
+            print(f"[analyze] skipping malformed {tier} candidate ({e}): {c!r}")
+            continue
     return candidates
 
 

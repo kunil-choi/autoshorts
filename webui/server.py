@@ -20,6 +20,7 @@ import asyncio
 import json
 import shutil
 import sys
+import traceback
 import uuid
 from pathlib import Path
 
@@ -174,6 +175,7 @@ async def _run_job(
 
         job.update(status="ready", message="완료")
     except Exception as e:  # noqa: BLE001 - surface any failure to the UI
+        traceback.print_exc()  # full trace goes to the console window, not just the short UI message
         job.update(status="error", message=str(e))
 
 
@@ -268,6 +270,7 @@ async def _run_build_draft(job_id: str, build_id: str, ranges: list) -> None:
         build["draft_path"] = draft_path
         build.update(status="draft_ready", message="초안 완료")
     except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
         build.update(status="error", message=str(e))
 
 
@@ -346,6 +349,7 @@ async def _run_build_final(build_id: str, cues: list, assets: render.RenderAsset
         build["final_path"] = final_path
         build.update(status="done", message="완료")
     except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
         build.update(status="error", message=str(e))
 
 
