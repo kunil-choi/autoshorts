@@ -12,6 +12,10 @@
 # read of a UTF-8 file causes elsewhere.
 
 $ErrorActionPreference = "Stop"
+# Invoke-WebRequest's default per-byte progress-bar rendering is known to
+# make large downloads dramatically slower in Windows PowerShell 5.1 -
+# disabling it just turns off that UI, the download itself is unaffected.
+$ProgressPreference = "SilentlyContinue"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $binDir = Join-Path $scriptDir "ffmpeg_bin"
 
