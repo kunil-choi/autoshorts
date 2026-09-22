@@ -249,13 +249,31 @@ def _face_crop_offset(
 # tried in order; side-lit/angled shots are often missed by the default
 # frontal cascade alone
 _FACE_CASCADES = ("haarcascade_frontalface_default.xml", "haarcascade_frontalface_alt2.xml")
+# the profile cascade only catches faces looking roughly one direction (its
+# training set is mirrored-left) - real footage has the speaker facing
+# either way depending on which side of frame they're on, so it's run
+# again on a horizontally flipped copy in _detect_faces to catch both.
+_PROFILE_CASCADE = "haarcascade_profileface.xml"
+
+
+def _run_cascade(cascade: object, gray, minNeighbors: int = 3) -> list[tuple[float, float, float, float]]:
+    found = cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=minNeighbors, minSize=(30, 30))
+    return [(float(x), float(y), float(w), float(h)) for x, y, w, h in found]
 
 
 def _detect_faces(image_path: Path) -> list[tuple[float, float, float, float]]:
     """Detect faces in a single image, returning (x, y, w, h) boxes in pixel
     coords. Empty on any failure (no opencv installed, a build/version that
     dropped CascadeClassifier, unreadable image, etc.) - callers treat that
-    the same as "no faces found"."""
+    the same as "no faces found".
+
+    Haar cascades are a weak, dated detector - frontal-only and easily
+    thrown off by a slight turn of the head, which is common in interview
+    footage where the speaker favors one camera. Frontal + profile (run
+    both normal and mirrored, since the profile cascade only catches one
+    facing direction) covers meaningfully more real-world angles than the
+    frontal cascades alone did.
+    """
     try:
         import cv2
     except ImportError as e:
@@ -266,13 +284,19 @@ def _detect_faces(image_path: Path) -> list[tuple[float, float, float, float]]:
         if img is None:
             return []
         gray = cv2.equalizeHist(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+        img_w = gray.shape[1]
         boxes: list[tuple[float, float, float, float]] = []
+
         for cascade_name in _FACE_CASCADES:
             cascade = cv2.CascadeClassifier(cv2.data.haarcascades + cascade_name)
-            found = cascade.detectMultiScale(
-                gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30)
-            )
-            boxes.extend((float(x), float(y), float(w), float(h)) for x, y, w, h in found)
+            boxes.extend(_run_cascade(cascade, gray))
+
+        profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + _PROFILE_CASCADE)
+        boxes.extend(_run_cascade(profile_cascade, gray))
+        flipped = cv2.flip(gray, 1)
+        for x, y, w, h in _run_cascade(profile_cascade, flipped):
+            boxes.append((img_w - x - w, y, w, h))
+
         return boxes
     except (AttributeError, cv2.error) as e:
         print(f"[render] 얼굴 인식 실패, 가운데 크롭을 사용합니다: {e}")
@@ -326,9 +350,14 @@ def find_speaker_crop(clip_path: Path, canvas_w: int, canvas_h: int) -> tuple[st
     frames_dir = clip_path.parent / "face_sample_frames"
     frames_dir.mkdir(exist_ok=True)
     try:
+        # 1 fps (was 1/3): clips here are short (a couple minutes at most),
+        # so this is still cheap, and more sample frames meaningfully
+        # improves the odds of catching at least one where a Haar cascade
+        # actually fires - the single biggest lever available without
+        # switching to a stronger (and asset-bundling) detector.
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", str(clip_path), "-vf", "fps=1/3",
+                "ffmpeg", "-y", "-i", str(clip_path), "-vf", "fps=1",
                 str(frames_dir / "f_%03d.jpg"),
             ],
             check=True, capture_output=True,
