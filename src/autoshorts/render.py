@@ -536,7 +536,14 @@ def build_filter_complex(
         last = "guestlabel"
 
     for i, (cue_start, cue_end, text) in enumerate(captions):
-        enable = f"enable='between(t,{cue_start},{cue_end})'"
+        # between(t,start,end) is inclusive on *both* ends, so two cues that
+        # share an exact touching boundary (cue1.end == cue2.start, the
+        # normal case for consecutive transcript segments) would both
+        # evaluate true for the single frame landing exactly on that
+        # instant - a one-frame double-exposure at every caption change.
+        # gte(t,start)*lt(t,end) makes the window half-open ([start, end))
+        # so consecutive cues never both draw on the same frame.
+        enable = f"enable='gte(t,{cue_start})*lt(t,{cue_end})'"
         wrapped = _wrap_caption(text)
         cap_lines = wrapped.split("\n", 1)
         cap_line1 = cap_lines[0]
