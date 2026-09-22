@@ -8,6 +8,7 @@ where python >nul 2>nul
 if errorlevel 1 (
     echo Python이 PATH에 없습니다. https://www.python.org/downloads/ 에서 3.11 이상을 설치하고
     echo 설치 시 "Add python.exe to PATH"를 체크한 뒤 다시 실행해주세요.
+    pause
     exit /b 1
 )
 
@@ -42,9 +43,11 @@ echo  - 실행: dist\autoshorts\autoshorts.exe 더블클릭
 echo  - 다른 부서에 배포: dist\autoshorts\ 폴더 전체를 zip으로 압축해서 전달
 echo    (받는 쪽은 Python/ffmpeg 설치 없이 autoshorts.exe만 실행하면 됩니다)
 echo ============================================================
+pause
 exit /b 0
 
 :error
 echo.
 echo 빌드 중 오류가 발생했습니다. 위 로그를 확인해주세요.
+pause
 exit /b 1
