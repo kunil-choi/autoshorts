@@ -4,11 +4,12 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 
 echo === Step 0/5: checking Python ===
-where python >nul 2>nul
+python --version >nul 2>nul
 if errorlevel 1 (
-    echo Python was not found on PATH.
-    echo Install Python 3.11+ from https://www.python.org/downloads/
-    echo and check "Add python.exe to PATH" during setup, then run this again.
+    echo Python was not found - or "python" is just the Windows Store shortcut.
+    echo Install real Python 3.11+ from https://www.python.org/downloads/
+    echo and check "Add python.exe to PATH" during setup, then close this
+    echo window, open a new one, and run this script again.
     pause
     exit /b 1
 )
