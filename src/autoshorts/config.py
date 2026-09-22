@@ -35,4 +35,8 @@ def get_clip_length_preset(key: str) -> ClipLengthPreset:
     raise ValueError(f"unknown clip length preset '{key}'")
 
 
-MODEL = os.environ.get("AUTOSHORTS_MODEL", "claude-sonnet-5")
+# .env ships AUTOSHORTS_MODEL= blank as a template - os.environ.get's
+# default only kicks in when the key is *absent*, not when python-dotenv
+# has set it to an empty string, so `or` (not the two-arg .get form) is
+# what actually makes a blank .env line fall back to this default.
+MODEL = os.environ.get("AUTOSHORTS_MODEL") or "claude-sonnet-5"

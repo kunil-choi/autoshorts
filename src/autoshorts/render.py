@@ -28,9 +28,10 @@ from pathlib import Path
 from .analyze import ClipRange
 from .transcript import Segment
 
-DISPLAY_FONT = os.environ.get(
-    "AUTOSHORTS_DISPLAY_FONT", "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"
-)
+# same blank-.env-line pitfall as config.py's MODEL - `or`, not the
+# two-arg .get form, so a blank AUTOSHORTS_DISPLAY_FONT= line falls back
+# to this default instead of resolving to an empty path.
+DISPLAY_FONT = os.environ.get("AUTOSHORTS_DISPLAY_FONT") or "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"
 
 CANVAS_W = 1080
 CANVAS_H = 1920
