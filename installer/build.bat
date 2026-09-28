@@ -30,7 +30,14 @@ powershell -ExecutionPolicy Bypass -File "installer\download_ffmpeg.ps1"
 if errorlevel 1 goto :error
 
 echo === Step 4/5: building with PyInstaller ===
+REM clear both the output AND PyInstaller's intermediate cache - a fresh
+REM zip re-download can give files timestamps that don't reliably increase
+REM from the last build, which can fool PyInstaller's mtime-based cache
+REM into reusing stale compiled code from the "build" folder even though
+REM the source actually changed. Only clearing "dist" (as this used to)
+REM isn't enough to guarantee a truly clean build.
 if exist "dist\autoshorts" rmdir /s /q "dist\autoshorts"
+if exist "build" rmdir /s /q "build"
 pyinstaller installer\autoshorts.spec --distpath dist --workpath build --noconfirm
 if errorlevel 1 goto :error
 
