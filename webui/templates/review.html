@@ -19,6 +19,12 @@
     .segment:hover { background: #f7f7f7; }
     .segment.selected { background: #dbeafe; }
     .segment .t { color: #888; font-size: 12px; margin-right: 8px; }
+    #selection-preview { margin-top: 10px; padding: 8px 10px; background: #f7f9fc; border: 1px solid #dbe4f0; border-radius: 6px; font-size: 13px; }
+    #selection-preview .empty { color: #888; }
+    #selection-preview .range { margin-bottom: 6px; }
+    #selection-preview .range:last-child { margin-bottom: 0; }
+    #selection-preview .range .t { color: #2563eb; font-weight: 600; font-size: 12px; margin-right: 6px; }
+    #selection-preview .total { margin-top: 6px; color: #666; font-size: 12px; }
     .actions { margin: 12px 0; }
     button.primary { padding: 8px 16px; font-size: 15px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; }
     button.primary:disabled { background: #aaa; }
@@ -66,6 +72,8 @@
     <div class="right">
       <h2>5-6. 자막에서 쇼츠로 만들 구간을 클릭해서 선택하세요 (여러 구간 선택 가능, 하드컷으로 이어붙여집니다)</h2>
       <div class="segments" id="segments"></div>
+
+      <div id="selection-preview"></div>
 
       <div class="actions">
         <button class="primary" id="build-draft-btn" onclick="buildDraft()">7. 초안 만들기</button>
@@ -130,9 +138,11 @@
       div.addEventListener('click', () => {
         div.classList.toggle('selected');
         seekTo(seg.start_sec);
+        updateSelectionPreview();
       });
       segmentsEl.appendChild(div);
     });
+    updateSelectionPreview();
 
     function seekTo(sec) {
       if (isYoutube) {
@@ -164,6 +174,7 @@
       });
       document.getElementById('thumbnail_text').value = cand.thumbnail_text || '';
       if (cand.ranges.length) seekTo(cand.ranges[0].start_sec);
+      updateSelectionPreview();
     }
 
     function selectedRanges() {
@@ -181,6 +192,28 @@
       }
       if (start !== null) ranges.push([start, segments[prev].end_sec]);
       return ranges;
+    }
+
+    function textForRange(startSec, endSec) {
+      return segments
+        .filter(seg => seg.end_sec > startSec && seg.start_sec < endSec)
+        .map(seg => seg.text)
+        .join(' ');
+    }
+
+    function updateSelectionPreview() {
+      const el = document.getElementById('selection-preview');
+      const ranges = selectedRanges();
+      if (!ranges.length) {
+        el.innerHTML = '<div class="empty">선택된 구간이 없습니다. 위 자막을 클릭해서 선택하세요.</div>';
+        return;
+      }
+      const rangeHtml = ranges.map(([start, end]) =>
+        `<div class="range"><span class="t">${fmt(start)}-${fmt(end)}</span>${textForRange(start, end)}</div>`
+      ).join('');
+      const totalSec = ranges.reduce((sum, [start, end]) => sum + (end - start), 0);
+      el.innerHTML = rangeHtml +
+        `<div class="total">${ranges.length}개 구간 선택됨 · 합계 ${fmt(totalSec)}</div>`;
     }
 
     function setStatus(msg, isError) {
