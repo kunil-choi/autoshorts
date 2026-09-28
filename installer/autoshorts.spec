@@ -16,6 +16,8 @@
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files
+
 block_cipher = None
 REPO_ROOT = Path(SPECPATH).resolve().parent
 
@@ -28,6 +30,17 @@ datas = [
     (str(REPO_ROOT / "webui" / "templates"), "templates"),
     (str(REPO_ROOT / "webui" / "static"), "static"),
 ]
+
+# faster_whisper ships a non-Python data file (its VAD model,
+# assets/silero_vad_v6.onnx) that PyInstaller's static analysis has no way
+# to discover on its own - it only follows Python imports. Without this,
+# the frozen app builds and starts fine but fails with an
+# ONNXRuntimeError/NO_SUCHFILE the first time it actually tries to
+# transcribe audio (whisper_transcribe's vad_filter=True), since that model
+# file just isn't in the bundle. collect_data_files grabs every non-code
+# file the installed package ships, not just this one, so any future
+# faster_whisper asset gets bundled the same way automatically.
+datas += collect_data_files("faster_whisper")
 
 # libraries whose submodules PyInstaller's static analysis is known to miss
 # (dynamic/plugin-style imports it can't see just by reading the code)
