@@ -30,6 +30,13 @@ powershell -ExecutionPolicy Bypass -File "installer\download_ffmpeg.ps1"
 if errorlevel 1 goto :error
 
 echo === Step 4/5: building with PyInstaller ===
+REM save the previous build's .env (API key etc.) before wiping the dist
+REM folder below - it lives inside dist\autoshorts, not in the source tree,
+REM so a rebuild would otherwise silently delete it and force re-entering
+REM the API key every single time.
+set "ENV_BACKUP=%TEMP%\autoshorts_env_backup_%RANDOM%.env"
+if exist "dist\autoshorts\.env" copy /Y "dist\autoshorts\.env" "%ENV_BACKUP%" >nul
+
 REM clear both the output AND PyInstaller's intermediate cache - a fresh
 REM zip re-download can give files timestamps that don't reliably increase
 REM from the last build, which can fool PyInstaller's mtime-based cache
@@ -44,6 +51,12 @@ if errorlevel 1 goto :error
 echo === Step 5/5: copying ffmpeg and .env.example next to the exe ===
 xcopy installer\ffmpeg_bin dist\autoshorts\ffmpeg_bin /E /I /Y
 copy /Y webui\.env.example dist\autoshorts\.env.example
+
+if exist "%ENV_BACKUP%" (
+    copy /Y "%ENV_BACKUP%" "dist\autoshorts\.env" >nul
+    del "%ENV_BACKUP%"
+    echo Existing .env (API key etc.) carried over from the previous build.
+)
 
 echo.
 echo ============================================================
