@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 import traceback
@@ -141,6 +142,17 @@ async def _run_job(
     work_dir = _job_work_dir(job_id)
     loop = asyncio.get_event_loop()
     try:
+        # fail fast with a clear Korean message instead of burning several
+        # minutes on transcript/whisper work only to hit a cryptic English
+        # SDK error ("Could not resolve authentication method...") once the
+        # pipeline finally reaches a Claude call - the most common cause by
+        # far is a first-run .env with ANTHROPIC_API_KEY= left blank.
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise RuntimeError(
+                f"ANTHROPIC_API_KEY가 설정되지 않았습니다. {REPO_ROOT / '.env'} 파일을 "
+                "메모장으로 열어 ANTHROPIC_API_KEY= 뒤에 발급받은 키를 붙여넣고 저장한 "
+                "뒤, 프로그램을 다시 실행해주세요."
+            )
         job.update(status="running", message="영상 정보를 불러오는 중...")
         if source_type == "url":
             source = YouTubeSource(url)

@@ -96,7 +96,16 @@ def main() -> None:
 
     import uvicorn
 
-    from webui.server import app as fastapi_app
+    from webui.server import app as fastapi_app  # this also loads app_dir/.env
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        # print this up front, at startup, rather than only after a worker
+        # waits through transcript/whisper work and hits the SDK's cryptic
+        # English error ("Could not resolve authentication method...") deep
+        # inside a Claude call - the most common cause is simply a first-run
+        # .env with ANTHROPIC_API_KEY= left blank.
+        print(f"[autoshorts] 경고: ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        print(f"[autoshorts] {app_dir / '.env'} 파일을 메모장으로 열어 ANTHROPIC_API_KEY= 뒤에 키를 붙여넣고 저장한 뒤 다시 실행해주세요.")
 
     threading.Thread(target=_open_browser_when_ready, daemon=True).start()
 
