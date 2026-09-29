@@ -471,3 +471,84 @@ def extract_guest_info(
         return f"{label} / {org}" if org else label
     except Exception:
         return ""
+
+
+SPEAKER_LABEL_TOOL = {
+    "name": "label_speaker_turns",
+    "description": "대본을 화자가 바뀌는 구간(turn)별로 나누고, 각 구간이 앵커(진행자)인지 패널(출연자)인지 표시한다.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "turns": {
+                "type": "array",
+                "description": (
+                    "화자가 이어지는 연속 구간들. 대본 줄 번호 기준으로, 같은 화자가 "
+                    "계속 말하는 동안은 하나의 turn으로 묶는다 (매 줄마다 나누지 않는다)."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "start_idx": {"type": "integer", "description": "이 화자 구간이 시작하는 줄 번호 (0부터 시작)"},
+                        "end_idx": {"type": "integer", "description": "이 화자 구간이 끝나는 줄 번호 (포함)"},
+                        "role": {
+                            "type": "string",
+                            "enum": ["앵커", "패널"],
+                            "description": "이 구간에서 말하는 사람의 역할 - 앵커(진행자, 짧게 질문/진행) 또는 패널(출연자, 실질적인 내용을 설명)",
+                        },
+                    },
+                    "required": ["start_idx", "end_idx", "role"],
+                },
+            }
+        },
+        "required": ["turns"],
+    },
+}
+
+
+def label_speakers(segments: list[Segment], client: anthropic.Anthropic | None = None) -> list[str]:
+    """Best-effort per-segment speaker role ("앵커" or "패널"), guessed by
+    Claude from conversational pattern (who asks short questions vs who
+    gives substantive answers) - there is no real audio diarization here,
+    so this can be wrong, especially for solo narration or ambiguous
+    back-and-forth. Returns a list the same length as segments, with ""
+    for any segment the model didn't cover or on any failure - never
+    breaks the pipeline over this, it's a display nicety in the review UI.
+    """
+    if not segments:
+        return []
+    client = client or anthropic.Anthropic()
+    numbered = "\n".join(f"{i}: {s.text}" for i, s in enumerate(segments))
+    labels = [""] * len(segments)
+    try:
+        message = client.messages.create(
+            model=MODEL,
+            max_tokens=8192,
+            system=(
+                "다음은 방송 대본을 줄 번호와 함께 나열한 것이다. 이 방송에는 진행을 맡은 "
+                "앵커(짧게 질문하거나 맞장구치며 진행하는 쪽)와, 실제로 분석·설명·의견을 "
+                "길게 이야기하는 출연자(패널)가 있다. 대본 내용을 보고 각 줄이 누구의 "
+                "발언인지 판단해서, 같은 화자가 이어지는 구간(turn)별로 묶어 표시해라. "
+                "화자가 단 한 명뿐이라 구분이 불가능하면 turns를 빈 배열로 반환해라."
+            ),
+            tools=[SPEAKER_LABEL_TOOL],
+            tool_choice={"type": "tool", "name": "label_speaker_turns"},
+            messages=[{"role": "user", "content": numbered}],
+        )
+        tool_use = next(b for b in message.content if b.type == "tool_use")
+        turns = tool_use.input.get("turns", [])
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            role = turn.get("role")
+            if role not in ("앵커", "패널"):
+                continue
+            try:
+                start = max(0, int(turn["start_idx"]))
+                end = min(len(segments) - 1, int(turn["end_idx"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            for i in range(start, end + 1):
+                labels[i] = role
+        return labels
+    except Exception:
+        return [""] * len(segments)

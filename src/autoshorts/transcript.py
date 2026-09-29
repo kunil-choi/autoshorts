@@ -18,6 +18,11 @@ class Segment:
     start_sec: float
     end_sec: float
     text: str
+    # best-effort role guess ("앵커"/"패널") filled in later by
+    # analyze.label_speakers() - empty string until then, since there's no
+    # real speaker-diarization signal in a plain transcript to set this at
+    # parse time.
+    speaker: str = ""
 
 
 def _vtt_timestamp_to_sec(ts: str) -> float:

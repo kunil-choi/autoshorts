@@ -152,9 +152,14 @@ async def _run_job(
         segments, transcript_source = await loop.run_in_executor(
             None, get_transcript_for_source, source, work_dir
         )
+        job["video_title"] = source.title
+
+        job.update(message="화자(앵커/패널) 구분 중...")
+        speakers = await loop.run_in_executor(None, analyze.label_speakers, segments)
+        for seg, speaker in zip(segments, speakers):
+            seg.speaker = speaker
         job["segments"] = segments
         job["transcript_source"] = transcript_source
-        job["video_title"] = source.title
 
         description = getattr(source, "description", None)
         guest_label_guess = ""
@@ -198,7 +203,7 @@ def review(request: Request, job_id: str):
     source = job["source"]
     is_youtube = isinstance(source, YouTubeSource)
     segments = [
-        {"start_sec": s.start_sec, "end_sec": s.end_sec, "text": s.text}
+        {"start_sec": s.start_sec, "end_sec": s.end_sec, "text": s.text, "speaker": s.speaker}
         for s in job["segments"]
     ]
     return templates.TemplateResponse(

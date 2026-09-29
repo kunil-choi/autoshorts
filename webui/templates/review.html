@@ -27,6 +27,9 @@
     .segment:hover { background: #f7f7f7; }
     .segment.selected { background: #dbeafe; }
     .segment .t { color: #888; font-size: 12px; margin-right: 8px; }
+    .segment .speaker { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 10px; margin-right: 6px; }
+    .segment .speaker.anchor { background: #e0edff; color: #1d4ed8; }
+    .segment .speaker.panel { background: #fde8e8; color: #b91c1c; }
     #selection-preview { margin-top: 10px; padding: 8px 10px; background: #f7f9fc; border: 1px solid #dbe4f0; border-radius: 6px; font-size: 13px; }
     #selection-preview .empty { color: #888; }
     #selection-preview .range { margin-bottom: 6px; }
@@ -124,12 +127,21 @@
       return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
     }
 
+    // speaker is Claude's best-effort guess (analyze.label_speakers) from
+    // conversational pattern, not real audio diarization - empty when it
+    // couldn't tell (solo narration, labeling failed, etc.), so no badge.
+    function speakerBadge(speaker) {
+      if (speaker === '앵커') return '<span class="speaker anchor">앵커</span>';
+      if (speaker === '패널') return '<span class="speaker panel">패널</span>';
+      return '';
+    }
+
     const segmentsEl = document.getElementById('segments');
     segments.forEach((seg, i) => {
       const div = document.createElement('div');
       div.className = 'segment';
       div.dataset.idx = i;
-      div.innerHTML = `<span class="t">${fmt(seg.start_sec)}-${fmt(seg.end_sec)}</span>${seg.text}`;
+      div.innerHTML = `<span class="t">${fmt(seg.start_sec)}-${fmt(seg.end_sec)}</span>${speakerBadge(seg.speaker)}${seg.text}`;
       div.addEventListener('click', () => {
         div.classList.toggle('selected');
         seekTo(seg.start_sec);
