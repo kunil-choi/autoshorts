@@ -8,7 +8,16 @@
     h2 { margin: 4px 0 12px; font-size: 16px; }
     .top-row { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
     #player-frame, #upload-player { width: 380px; height: 214px; background: #000; flex: 0 0 380px; }
-    .top-row h1 { margin: 0; font-size: 20px; align-self: center; }
+    .title-controls { display: flex; flex-direction: column; gap: 10px; align-self: center; }
+    .title-controls h1 { margin: 0; font-size: 20px; }
+    .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .player-controls button {
+      padding: 6px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px;
+      background: white; cursor: pointer;
+    }
+    .player-controls button:hover { border-color: #93b4e6; }
+    #play-btn { min-width: 84px; font-weight: 600; }
+    .seek-buttons { display: flex; gap: 6px; }
     .candidates { margin-bottom: 20px; }
     .candidate-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
     .candidate-row-label { flex: 0 0 90px; font-size: 13px; color: #555; font-weight: 600; }
@@ -54,14 +63,23 @@
   <div class="top-row">
     {% if is_youtube %}
       <div id="player-frame">
-        <iframe id="yt-player" width="380" height="214"
-          src="https://www.youtube.com/embed/{{ youtube_id }}?enablejsapi=1"
-          frameborder="0" allow="autoplay"></iframe>
+        <div id="yt-player"></div>
       </div>
     {% else %}
       <video id="upload-player" controls src="/jobs/{{ job_id }}/source-media"></video>
     {% endif %}
-    <h1>{{ video_title }}</h1>
+    <div class="title-controls">
+      <h1>{{ video_title }}</h1>
+      <div class="player-controls">
+        <button type="button" id="play-btn" onclick="togglePlay()">▶ 재생</button>
+        <div class="seek-buttons">
+          <button type="button" onclick="seekRelative(-10)">-10초</button>
+          <button type="button" onclick="seekRelative(-5)">-5초</button>
+          <button type="button" onclick="seekRelative(5)">+5초</button>
+          <button type="button" onclick="seekRelative(10)">+10초</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="candidates">
@@ -117,9 +135,61 @@
   <script>
     const jobId = {{ job_id | tojson }};
     const isYoutube = {{ is_youtube | tojson }};
+    const youtubeId = {{ youtube_id | tojson }};
     const segments = {{ segments_json | safe }};
     const candidates = {{ candidates_json | safe }};
     let currentBuildId = null;
+
+    // real YouTube IFrame API player (not a raw iframe src) so we can read
+    // back the exact current playback position for the -10/-5/+5/+10 buttons,
+    // which a plain postMessage-only embed can't give us reliably.
+    let ytPlayer = null;
+    let ytReady = false;
+
+    if (isYoutube) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+      window.onYouTubeIframeAPIReady = function() {
+        ytPlayer = new YT.Player('yt-player', {
+          width: 380, height: 214, videoId: youtubeId,
+          playerVars: { rel: 0 },
+          events: {
+            onReady: () => { ytReady = true; },
+            onStateChange: (e) => {
+              document.getElementById('play-btn').textContent =
+                e.data === YT.PlayerState.PLAYING ? '⏸ 일시정지' : '▶ 재생';
+            },
+          },
+        });
+      };
+    } else {
+      window.addEventListener('DOMContentLoaded', () => {
+        const video = document.getElementById('upload-player');
+        video.addEventListener('play', () => { document.getElementById('play-btn').textContent = '⏸ 일시정지'; });
+        video.addEventListener('pause', () => { document.getElementById('play-btn').textContent = '▶ 재생'; });
+      });
+    }
+
+    function getCurrentTime() {
+      if (isYoutube) return ytReady ? ytPlayer.getCurrentTime() : 0;
+      return document.getElementById('upload-player').currentTime;
+    }
+
+    function seekRelative(delta) {
+      seekTo(getCurrentTime() + delta);
+    }
+
+    function togglePlay() {
+      if (isYoutube) {
+        if (!ytReady) return;
+        if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) ytPlayer.pauseVideo();
+        else ytPlayer.playVideo();
+      } else {
+        const video = document.getElementById('upload-player');
+        if (video.paused) video.play(); else video.pause();
+      }
+    }
 
     function fmt(sec) {
       sec = Math.round(sec);
@@ -153,16 +223,11 @@
     renderCandidateGrid();
 
     function seekTo(sec) {
+      sec = Math.max(0, sec);
       if (isYoutube) {
-        // this is the same postMessage the official iframe_api JS sends
-        // under the hood, so it works against the embed (enablejsapi=1)
-        // directly with no extra script to load - it can just silently
-        // miss if sent in the first instant after the iframe first loads,
-        // before the embedded player's own listener is attached.
-        const iframe = document.getElementById('yt-player');
-        iframe.contentWindow.postMessage(JSON.stringify({
-          event: 'command', func: 'seekTo', args: [sec, true]
-        }), '*');
+        if (!ytReady) return;
+        ytPlayer.seekTo(sec, true);
+        ytPlayer.playVideo();
       } else {
         const video = document.getElementById('upload-player');
         video.currentTime = sec;
