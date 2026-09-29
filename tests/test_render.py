@@ -3,6 +3,9 @@ from autoshorts.render import (
     build_filter_complex,
     captions_for_ranges,
     escape_drawtext,
+    _blind_right_biased_offset,
+    _clip_overlapping_cues,
+    _face_crop_offset,
     _title_lines,
     _wrap_caption,
 )
@@ -75,3 +78,46 @@ def test_build_filter_complex_skips_decorations_when_omitted():
     filter_complex, _, _, extra_inputs = build_filter_complex(captions=[])
     assert "drawbox" not in filter_complex  # no guest label / bottom image band
     assert extra_inputs == []
+
+
+def test_clip_overlapping_cues_trims_end_to_next_start():
+    # YouTube rolling auto-captions routinely overlap like this - without
+    # clipping, both cues would satisfy their enable() window at once and
+    # burn in as a dissolve/overlap instead of a clean cut.
+    cues = [(0.0, 3.0, "a"), (2.0, 5.0, "b"), (4.5, 8.0, "c")]
+    assert _clip_overlapping_cues(cues) == [(0.0, 2.0, "a"), (2.0, 4.5, "b"), (4.5, 8.0, "c")]
+
+
+def test_clip_overlapping_cues_drops_fully_swallowed_cue():
+    # a cue entirely inside the next one's overlap window would clip to a
+    # zero/negative duration - drop it rather than emit an invalid cue.
+    cues = [(0.0, 5.0, "a"), (1.0, 2.0, "b"), (1.0, 6.0, "c")]
+    assert _clip_overlapping_cues(cues) == [(0.0, 1.0, "a"), (1.0, 6.0, "c")]
+
+
+def test_captions_for_ranges_clips_overlapping_transcript_segments():
+    segments = [
+        Segment(0.0, 3.0, "a"),
+        Segment(2.0, 5.0, "b"),
+    ]
+    cues = captions_for_ranges(segments, [ClipRange(0.0, 5.0)])
+    assert cues == [(0.0, 2.0, "a"), (2.0, 5.0, "b")]
+
+
+def test_face_crop_offset_prefers_right_side_faces():
+    faces = [(10.0, 10.0, 50.0, 50.0), (200.0, 10.0, 50.0, 50.0)]
+    offset = _face_crop_offset(
+        faces, scale=1.0, canvas_w=100, canvas_h=100, scaled_w=300.0, scaled_h=300.0, src_w=300.0,
+    )
+    assert offset is not None
+    # right face center is x=225, so the crop window (100 wide) should be
+    # pulled toward that side rather than sitting at the frame's midpoint
+    assert offset[0] > 100  # would be ~100 for a plain center crop
+
+
+def test_blind_right_biased_offset_is_right_of_center():
+    x_off, _ = _blind_right_biased_offset(
+        scale=1.0, canvas_w=100, canvas_h=100, scaled_w=300.0, scaled_h=300.0, src_w=300.0,
+    )
+    center_x_off = (300.0 - 100) / 2  # what a plain center crop would use
+    assert x_off > center_x_off

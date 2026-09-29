@@ -193,7 +193,29 @@ def captions_for_ranges(
                 continue
             out.append((clip_offset + rel_start, clip_offset + rel_end, text))
         clip_offset += r.end_sec - r.start_sec
-    return out
+    return _clip_overlapping_cues(out)
+
+
+def _clip_overlapping_cues(
+    cues: list[tuple[float, float, str]]
+) -> list[tuple[float, float, str]]:
+    """Clip each cue's end to the next cue's start so consecutive captions
+    never both satisfy build_filter_complex's enable window on the same
+    frame. Source transcripts - YouTube's rolling auto-captions especially -
+    commonly have consecutive cues whose time ranges genuinely overlap by a
+    second or two (rolling captions are *designed* to overlap: a new line
+    appears before the old one finishes scrolling off), and without this
+    clip that overlap burns in as the old caption still visible, dissolved
+    together with the new one, instead of a clean cut between them."""
+    result: list[tuple[float, float, str]] = []
+    for i, (start, end, text) in enumerate(cues):
+        if i + 1 < len(cues):
+            next_start = cues[i + 1][0]
+            if next_start < end:
+                end = next_start
+        if end > start:
+            result.append((start, end, text))
+    return result
 
 
 def _face_crop_offset(
@@ -321,13 +343,36 @@ def _probe_dimensions(video_path: Path) -> tuple[int, int] | None:
 
 _CENTER_CROP = ("(in_w-out_w)/2", "(in_h-out_h)/2")
 
+# horizontal target (as a fraction of source width), used only as a last
+# resort when face detection finds nothing at all to work with. Most
+# interview-style formats seat the person being quoted on the right side of
+# a side-by-side two-camera shot (matching analyze.py's _GUEST_CENTERED_RULE
+# bias), so aiming the crop window there is a better blind guess than a
+# literal center crop - a plain center crop on a two-person side-by-side
+# shot reliably cuts both people's faces in half instead of keeping either
+# one whole.
+_RIGHT_BIAS_FRACTION = 0.72
+
+
+def _blind_right_biased_offset(
+    scale: float, canvas_w: int, canvas_h: int, scaled_w: float, scaled_h: float, src_w: float,
+) -> tuple[int, int]:
+    max_x_off = max(0.0, scaled_w - canvas_w)
+    max_y_off = max(0.0, scaled_h - canvas_h)
+    target_x = src_w * _RIGHT_BIAS_FRACTION * scale
+    x_off = min(max(0.0, target_x - canvas_w / 2), max_x_off)
+    y_off = max_y_off / 2  # no vertical signal available - just center it
+    return round(x_off), round(y_off)
+
 
 def find_speaker_crop(clip_path: Path, canvas_w: int, canvas_h: int) -> tuple[str, str]:
     """Best-effort: sample a few frames from clip_path, detect faces, and
     return (crop_x, crop_y) ffmpeg crop-filter position values that keep the
     most prominent speaker in frame instead of a blind center crop. Falls
-    back to ffmpeg's own centered crop on any failure (opencv not installed,
-    no faces found, ffprobe/ffmpeg failure, etc.) - never raises.
+    back to a right-biased crop (see _blind_right_biased_offset) when
+    detection runs but finds no faces at all, or to ffmpeg's own centered
+    crop when detection can't run in the first place (opencv not installed,
+    ffprobe/ffmpeg failure, etc.) - never raises.
     """
     try:
         import cv2  # noqa: F401
@@ -373,8 +418,9 @@ def find_speaker_crop(clip_path: Path, canvas_w: int, canvas_h: int) -> tuple[st
 
     offset = _face_crop_offset(all_faces, scale, canvas_w, canvas_h, scaled_w, scaled_h, src_w)
     if offset is None:
-        print("[render] 샘플 프레임에서 얼굴을 찾지 못해 가운데 크롭을 사용합니다.")
-        return _CENTER_CROP
+        offset = _blind_right_biased_offset(scale, canvas_w, canvas_h, scaled_w, scaled_h, src_w)
+        print(f"[render] 샘플 프레임에서 얼굴을 찾지 못해 우측 인물을 기준으로 크롭합니다: x={offset[0]}, y={offset[1]}")
+        return str(offset[0]), str(offset[1])
     print(f"[render] 얼굴 {len(all_faces)}개 인식, 크롭 위치 조정: x={offset[0]}, y={offset[1]}")
     return str(offset[0]), str(offset[1])
 
