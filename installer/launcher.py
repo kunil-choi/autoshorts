@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -57,9 +58,32 @@ def _scaffold_env(app_dir: Path) -> None:
         print("[autoshorts] 이 파일을 열어 ANTHROPIC_API_KEY를 채운 뒤 다시 실행해주세요.")
 
 
+def _wait_for_server(port: int, timeout: float = 20.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.3)
+    return False
+
+
 def _open_browser_when_ready() -> None:
-    time.sleep(2.0)
-    webbrowser.open(f"http://127.0.0.1:{PORT}")
+    url = f"http://127.0.0.1:{PORT}"
+    if not _wait_for_server(PORT):
+        print(f"[autoshorts] 서버 시작이 너무 오래 걸립니다. 브라우저 주소창에 아래 주소를 직접 입력해주세요:")
+        print(f"[autoshorts] {url}")
+        return
+    # open_new (rather than open) asks for a genuinely new window instead of
+    # possibly reusing/backgrounding an existing browser window, which is
+    # what "새 창이 안 떠요" (already-open browser, no visible new window)
+    # usually turns out to be - but on some Windows setups even this can
+    # silently no-op, so always print a manual fallback too.
+    opened = webbrowser.open_new(url)
+    if not opened:
+        print(f"[autoshorts] 브라우저를 자동으로 열지 못했습니다. 아래 주소를 직접 브라우저 주소창에 입력해주세요:")
+        print(f"[autoshorts] {url}")
 
 
 def main() -> None:
