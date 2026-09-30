@@ -295,55 +295,76 @@
         el.classList.toggle('selected', parseInt(el.dataset.idx) === idx));
 
       document.querySelectorAll('.segment').forEach(el => el.classList.remove('selected'));
+      let firstSelectedIdx = null;
       cand.ranges.forEach(r => {
         segments.forEach((seg, i) => {
           if (seg.end_sec > r.start_sec && seg.start_sec < r.end_sec) {
             segmentsEl.children[i].classList.add('selected');
+            if (firstSelectedIdx === null || i < firstSelectedIdx) firstSelectedIdx = i;
           }
         });
       });
+      if (firstSelectedIdx !== null) {
+        // scroll the (independently-scrolling) transcript list itself so the
+        // newly-selected block is visible without the worker having to find
+        // and scroll to it manually
+        segmentsEl.children[firstSelectedIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
       document.getElementById('thumbnail_text').value = cand.thumbnail_text || '';
       if (cand.ranges.length) seekTo(cand.ranges[0].start_sec);
       updateSelectionPreview();
     }
 
-    function selectedRanges() {
+    // groups of contiguous selected segment *indices* - the single source
+    // of truth both the highlighted blue blocks and the text preview below
+    // are built from, so they can never disagree with each other. Before,
+    // the preview independently re-matched segments by time overlap against
+    // the highlighted range's [start,end] - since transcript segments often
+    // have slightly overlapping timestamps (rolling captions, whisper VAD),
+    // that could pull in one extra segment just outside the actual
+    // selection on either side.
+    function selectedIndexRanges() {
       const selectedIdx = [...document.querySelectorAll('.segment.selected')]
         .map(el => parseInt(el.dataset.idx)).sort((a,b) => a-b);
-      const ranges = [];
-      let start = null, prev = null;
+      const groups = [];
+      let startIdx = null, prevIdx = null;
       for (const i of selectedIdx) {
-        if (start === null) { start = segments[i].start_sec; }
-        else if (prev !== i - 1) {
-          ranges.push([start, segments[prev].end_sec]);
-          start = segments[i].start_sec;
+        if (startIdx === null) { startIdx = i; }
+        else if (prevIdx !== i - 1) {
+          groups.push([startIdx, prevIdx]);
+          startIdx = i;
         }
-        prev = i;
+        prevIdx = i;
       }
-      if (start !== null) ranges.push([start, segments[prev].end_sec]);
-      return ranges;
+      if (startIdx !== null) groups.push([startIdx, prevIdx]);
+      return groups;
     }
 
-    function textForRange(startSec, endSec) {
-      return segments
-        .filter(seg => seg.end_sec > startSec && seg.start_sec < endSec)
-        .map(seg => seg.text)
-        .join(' ');
+    function selectedRanges() {
+      return selectedIndexRanges().map(([startIdx, endIdx]) =>
+        [segments[startIdx].start_sec, segments[endIdx].end_sec]);
+    }
+
+    function textForIndexRange(startIdx, endIdx) {
+      return segments.slice(startIdx, endIdx + 1).map(seg => seg.text).join(' ');
     }
 
     function updateSelectionPreview() {
       const el = document.getElementById('selection-preview');
-      const ranges = selectedRanges();
-      if (!ranges.length) {
+      const groups = selectedIndexRanges();
+      if (!groups.length) {
         el.innerHTML = '<div class="empty">선택된 구간이 없습니다. 위 자막을 클릭해서 선택하세요.</div>';
         return;
       }
-      const rangeHtml = ranges.map(([start, end]) =>
-        `<div class="range"><span class="t">${fmt(start)}-${fmt(end)}</span>${textForRange(start, end)}</div>`
-      ).join('');
-      const totalSec = ranges.reduce((sum, [start, end]) => sum + (end - start), 0);
+      const rangeHtml = groups.map(([startIdx, endIdx]) => {
+        const start = segments[startIdx].start_sec, end = segments[endIdx].end_sec;
+        return `<div class="range"><span class="t">${fmt(start)}-${fmt(end)}</span>${textForIndexRange(startIdx, endIdx)}</div>`;
+      }).join('');
+      const totalSec = groups.reduce(
+        (sum, [startIdx, endIdx]) => sum + (segments[endIdx].end_sec - segments[startIdx].start_sec), 0
+      );
       el.innerHTML = rangeHtml +
-        `<div class="total">${ranges.length}개 구간 선택됨 · 합계 ${fmt(totalSec)}</div>`;
+        `<div class="total">${groups.length}개 구간 선택됨 · 합계 ${fmt(totalSec)}</div>`;
     }
 
     function setStatus(msg, isError) {
