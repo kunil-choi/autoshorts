@@ -334,9 +334,17 @@ async def create_final(
     assets_dir = work_dir / "assets"
     assets_dir.mkdir(exist_ok=True)
 
-    def _save(upload: UploadFile | None, name: str) -> Path | None:
+    # a worker can re-finalize the same build after tweaking captions or
+    # metadata without re-picking logo/banner images every time (the
+    # browser's file input does carry the previous selection forward on its
+    # own, but that shouldn't be the only thing this relies on) - fall back
+    # to whatever was used on this build's last final render when no new
+    # file is attached this time, instead of silently dropping it.
+    prev_assets: render.RenderAssets | None = build.get("assets")
+
+    def _save(upload: UploadFile | None, name: str, previous: Path | None) -> Path | None:
         if upload is None or not upload.filename:
-            return None
+            return previous
         dest = assets_dir / f"{name}{Path(upload.filename).suffix}"
         with dest.open("wb") as f:
             shutil.copyfileobj(upload.file, f)
@@ -345,10 +353,11 @@ async def create_final(
     assets = render.RenderAssets(
         thumbnail_text=thumbnail_text,
         guest_label=guest_label,
-        logo_top_left=_save(logo_top_left, "logo_left"),
-        logo_top_right=_save(logo_top_right, "logo_right"),
-        banner_bottom=_save(banner_bottom, "banner_bottom"),
+        logo_top_left=_save(logo_top_left, "logo_left", prev_assets.logo_top_left if prev_assets else None),
+        logo_top_right=_save(logo_top_right, "logo_right", prev_assets.logo_top_right if prev_assets else None),
+        banner_bottom=_save(banner_bottom, "banner_bottom", prev_assets.banner_bottom if prev_assets else None),
     )
+    build["assets"] = assets
     build["status"] = "finalizing"
     build["message"] = "최종 렌더링 중..."
     asyncio.create_task(_run_build_final(build_id, cues, assets))

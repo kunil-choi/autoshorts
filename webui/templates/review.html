@@ -114,6 +114,10 @@
 
   <div id="final-section">
     <h2>8. 메타데이터</h2>
+    <p style="font-size:13px;color:#666;margin-top:-6px">
+      완료된 뒤에도 위 자막이나 아래 내용/이미지를 수정하고 "최종 렌더링" 버튼을 다시 누르면
+      새로 렌더링됩니다 (이미지를 새로 고르지 않으면 마지막에 쓴 이미지가 그대로 유지됩니다).
+    </p>
     <div class="field">
       <label>썸네일 문구 (2줄, 줄바꿈으로 구분)</label>
       <textarea id="thumbnail_text" rows="2" style="width:100%"></textarea>
@@ -441,9 +445,13 @@
       const data = await res.json();
       setStatus(data.message || data.status);
       if (data.status === 'done') {
+        // cache-bust: re-rendering writes to the same final.mp4 path, so
+        // without this the browser can show the previous render's video
+        const url = `/builds/${currentBuildId}/final.mp4?t=${Date.now()}`;
         document.getElementById('final-result').innerHTML =
-          `<video controls style="width:100%;max-width:480px" src="/builds/${currentBuildId}/final.mp4"></video>
-           <p><a href="/builds/${currentBuildId}/final.mp4" download>완성된 쇼츠 다운로드</a></p>`;
+          `<video controls style="width:100%;max-width:480px" src="${url}"></video>
+           <p><a href="${url}" download>완성된 쇼츠 다운로드</a></p>
+           <p style="font-size:12px;color:#888">위 내용을 다시 고치고 "최종 렌더링" 버튼을 또 누르면 새로 렌더링됩니다.</p>`;
       } else if (data.status === 'error') {
         // status already shown as error
       } else {

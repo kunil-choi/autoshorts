@@ -177,12 +177,31 @@ def captions_for_ranges(
     """Transcript segments overlapping any of `ranges`, with times mapped
     onto the final concatenated clip's own timeline: each range contributes
     its own overlapping segments (relative to that range's start), offset
-    by the total duration of the ranges stitched in before it."""
+    by the total duration of the ranges stitched in before it.
+
+    A segment only counts as "in" a range if at least half of the segment's
+    own duration falls inside it, not on any overlap at all. Transcript
+    segments routinely overlap their neighbors by a second or two (rolling
+    captions, whisper VAD) - ranges themselves come from the worker
+    deselecting a segment in the review UI, which splits one selection into
+    two ranges with that segment excluded. Without the majority-overlap
+    requirement, the excluded segment's own overlap with the *adjacent*
+    range's edge (a side effect of the neighbor overlap, not anything the
+    worker chose) would still be enough to sneak its caption back in, even
+    though its video was correctly cut out - a caption flashing over
+    footage that no longer matches it.
+    """
     out: list[tuple[float, float, str]] = []
     clip_offset = 0.0
     for r in ranges:
         for seg in segments:
-            if seg.end_sec <= r.start_sec or seg.start_sec >= r.end_sec:
+            overlap_start = max(seg.start_sec, r.start_sec)
+            overlap_end = min(seg.end_sec, r.end_sec)
+            overlap = overlap_end - overlap_start
+            if overlap <= 0:
+                continue
+            seg_duration = seg.end_sec - seg.start_sec
+            if seg_duration > 0 and overlap < seg_duration / 2:
                 continue
             rel_start = max(0.0, seg.start_sec - r.start_sec)
             rel_end = min(r.end_sec - r.start_sec, seg.end_sec - r.start_sec)

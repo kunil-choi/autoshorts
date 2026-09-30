@@ -95,6 +95,22 @@ def test_clip_overlapping_cues_drops_fully_swallowed_cue():
     assert _clip_overlapping_cues(cues) == [(0.0, 1.0, "a"), (1.0, 6.0, "c")]
 
 
+def test_captions_for_ranges_excludes_deselected_segment_despite_overlap():
+    # a worker deselecting the middle segment of a group splits it into two
+    # ranges around the deselected one - its own overlap with either
+    # range's edge (from segments overlapping their neighbors) must not be
+    # enough to sneak its caption into either range's video.
+    segments = [
+        Segment(0.0, 5.0, "keep-a"),
+        Segment(4.0, 9.0, "deselected"),
+        Segment(8.0, 12.0, "keep-b"),
+    ]
+    ranges = [ClipRange(0.0, 5.0), ClipRange(8.0, 12.0)]
+    cues = captions_for_ranges(segments, ranges)
+    texts = [text for _, _, text in cues]
+    assert texts == ["keep-a", "keep-b"]
+
+
 def test_captions_for_ranges_clips_overlapping_transcript_segments():
     segments = [
         Segment(0.0, 3.0, "a"),
