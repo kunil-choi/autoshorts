@@ -29,8 +29,32 @@ $zipPath = Join-Path $scriptDir "ffmpeg-download.zip"
 $url = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
 
 Write-Host "Downloading ffmpeg from: $url"
+Write-Host "(this is roughly 100 MB - it can take a few minutes depending on your connection)"
 try {
-    Invoke-WebRequest -Uri $url -OutFile $zipPath
+    # curl.exe ships built into Windows 10 (1803+) and Windows 11, is fast,
+    # and shows a real progress bar - unlike Invoke-WebRequest, whose own
+    # progress bar (left on) makes large downloads dramatically slower in
+    # Windows PowerShell 5.1, which is why $ProgressPreference is silenced
+    # above for the fallback path below. Prefer curl.exe when present so
+    # the download doesn't look frozen with nothing on screen.
+    $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curlExe) {
+        # curl's progress bar writes to stderr by design - with
+        # $ErrorActionPreference = "Stop" (set above) PowerShell treats ANY
+        # stderr output from a native command as a script-terminating error,
+        # which would abort a perfectly successful download. Relax it just
+        # for this call and check $LASTEXITCODE ourselves instead.
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        & curl.exe -L --progress-bar -o $zipPath $url
+        $ErrorActionPreference = $prevEap
+        if ($LASTEXITCODE -ne 0) {
+            throw "curl.exe exited with code $LASTEXITCODE"
+        }
+    } else {
+        Write-Host "(curl.exe not found - falling back to a silent download, no progress bar will be shown; this is normal, just wait)"
+        Invoke-WebRequest -Uri $url -OutFile $zipPath
+    }
 } catch {
     Write-Error "Failed to download ffmpeg. The URL above may no longer be valid - get the latest win64-gpl zip yourself from https://github.com/BtbN/FFmpeg-Builds/releases and put ffmpeg.exe/ffprobe.exe into $binDir"
     exit 1
