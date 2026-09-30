@@ -19,18 +19,26 @@
     #play-btn { min-width: 84px; font-weight: 600; }
     .seek-buttons { display: flex; gap: 6px; }
     .candidates { margin-bottom: 20px; }
-    .candidate-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-    .candidate-row-label { flex: 0 0 90px; font-size: 13px; color: #555; font-weight: 600; }
-    .candidate-tiles { display: flex; gap: 8px; flex-wrap: wrap; }
-    .candidate-tile {
-      width: 44px; height: 44px; border: 1px solid #ccc; border-radius: 6px; background: white;
-      cursor: pointer; font-size: 15px; font-weight: 600; color: #444;
+    .candidate-row { margin-bottom: 14px; }
+    .candidate-row-label { font-size: 13px; color: #555; font-weight: 600; margin-bottom: 6px; }
+    .candidate-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+    .candidate-card {
+      width: 230px; border: 1px solid #ccc; border-radius: 8px; background: white;
+      padding: 10px; cursor: pointer; display: flex; flex-direction: column; gap: 6px;
     }
-    .candidate-tile:hover { border-color: #93b4e6; }
-    .candidate-tile.selected { background: #2563eb; border-color: #2563eb; color: white; }
-    #candidate-detail { margin-top: 8px; padding: 8px 10px; background: #f7f9fc; border: 1px solid #dbe4f0; border-radius: 6px; font-size: 13px; }
-    #candidate-detail .empty { color: #888; }
-    #candidate-detail .tier { display: inline-block; font-size: 11px; background: #eee; padding: 1px 6px; border-radius: 10px; margin-bottom: 4px; }
+    .candidate-card:hover { border-color: #93b4e6; }
+    .candidate-card.selected { border-color: #2563eb; background: #eef4ff; }
+    .candidate-card .num { font-size: 11px; font-weight: 700; color: #2563eb; }
+    .candidate-card .title { font-size: 14px; font-weight: 600; }
+    .candidate-card .summary {
+      font-size: 12px; color: #555; line-height: 1.4;
+      max-height: 4.2em; overflow: hidden;
+    }
+    .candidate-card .select-btn {
+      margin-top: auto; align-self: flex-start; padding: 4px 10px; font-size: 12px;
+      border: 1px solid #2563eb; color: #2563eb; background: white; border-radius: 4px; cursor: pointer;
+    }
+    .candidate-card.selected .select-btn { background: #2563eb; color: white; }
     .segments { max-height: 380px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; }
     .segment { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; cursor: pointer; font-size: 14px; }
     .segment:hover { background: #f7f7f7; }
@@ -83,9 +91,8 @@
   </div>
 
   <div class="candidates">
-    <h2>3-4. AI 추천 후보 (번호를 클릭하면 아래 자막에서 해당 구간이 선택됩니다)</h2>
+    <h2>3-4. AI 추천 후보 (박스를 클릭하면 아래 자막에서 해당 구간이 선택됩니다)</h2>
     <div id="candidate-grid"></div>
-    <div id="candidate-detail"><div class="empty">후보 번호를 클릭하면 여기에 요약이 표시됩니다.</div></div>
   </div>
 
   <h2>5-6. 자막에서 쇼츠로 만들 구간을 클릭해서 선택하세요 (여러 구간 선택 가능, 하드컷으로 이어붙여집니다)</h2>
@@ -261,18 +268,22 @@
         const row = document.createElement('div');
         row.className = 'candidate-row';
         row.innerHTML = `<div class="candidate-row-label">${group.label}</div>`;
-        const tiles = document.createElement('div');
-        tiles.className = 'candidate-tiles';
+        const cards = document.createElement('div');
+        cards.className = 'candidate-cards';
         group.items.forEach((c, i) => {
-          const tile = document.createElement('button');
-          tile.type = 'button';
-          tile.className = 'candidate-tile';
-          tile.dataset.idx = c._idx;
-          tile.textContent = i + 1;
-          tile.addEventListener('click', () => selectCandidate(c._idx));
-          tiles.appendChild(tile);
+          const card = document.createElement('div');
+          card.className = 'candidate-card';
+          card.dataset.idx = c._idx;
+          card.innerHTML = `
+            <div class="num">${i + 1}</div>
+            <div class="title">${c.title}</div>
+            <div class="summary">${c.summary}</div>
+            <button type="button" class="select-btn">이 구간 선택</button>
+          `;
+          card.addEventListener('click', () => selectCandidate(c._idx));
+          cards.appendChild(card);
         });
-        row.appendChild(tiles);
+        row.appendChild(cards);
         grid.appendChild(row);
       });
     }
@@ -280,12 +291,8 @@
     function selectCandidate(idx) {
       const cand = candidates[idx];
 
-      document.querySelectorAll('.candidate-tile').forEach(el =>
+      document.querySelectorAll('.candidate-card').forEach(el =>
         el.classList.toggle('selected', parseInt(el.dataset.idx) === idx));
-      document.getElementById('candidate-detail').innerHTML = `
-        <span class="tier">${cand.tier_label}</span>
-        <div><strong>${cand.title}</strong></div>
-        <div>${cand.summary}</div>`;
 
       document.querySelectorAll('.segment').forEach(el => el.classList.remove('selected'));
       cand.ranges.forEach(r => {
