@@ -44,6 +44,21 @@
     </fieldset>
 
     <button type="submit">분석 시작</button>
+
+    <fieldset style="margin-top:20px;border-color:#7c3aed">
+      <legend>🚀 완전 자동 모드</legend>
+      <p style="font-size:13px;color:#666;margin-top:0">
+        위 1번 입력과 4번 목표 길이만 그대로 쓰고, 아래 개수만 정하면 구간 선정부터
+        자막 맞춤법 교정, 렌더링, 유튜브 <b>비공개</b> 업로드까지 사람 확인 없이 전부
+        자동으로 진행합니다. (3번 조건 체크박스는 자동 모드에서는 쓰지 않고 훅+핵심내용
+        후보를 함께 봅니다)
+      </p>
+      <label>만들 개수: <input type="number" name="count" min="1" max="10" value="3" style="width:60px"></label>
+      <br>
+      <button type="button" id="auto-submit-btn" style="margin-top:10px;background:#7c3aed;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:15px;cursor:pointer">
+        🚀 완전 자동으로 진행 (비공개 업로드까지)
+      </button>
+    </fieldset>
   </form>
 
   <div id="status"></div>
@@ -83,6 +98,25 @@
         }
       };
       poll();
+    });
+
+    document.getElementById('auto-submit-btn').addEventListener('click', async () => {
+      statusEl.style.display = 'block';
+      statusEl.classList.remove('error');
+      statusEl.textContent = '자동 작업을 시작합니다...';
+
+      const formData = new FormData(form);
+      let autoJobId;
+      try {
+        const res = await fetch('/auto-jobs', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(await res.text());
+        ({ auto_job_id: autoJobId } = await res.json());
+      } catch (err) {
+        statusEl.classList.add('error');
+        statusEl.textContent = '오류: ' + err.message;
+        return;
+      }
+      window.location.href = `/auto-jobs/${autoJobId}/view`;
     });
   </script>
 </body>

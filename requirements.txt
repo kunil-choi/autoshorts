@@ -10,3 +10,6 @@ faster-whisper>=1.0.3
 webvtt-py>=0.4.6
 opencv-python-headless>=4.9.0,<5
 Pillow>=10.0.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0

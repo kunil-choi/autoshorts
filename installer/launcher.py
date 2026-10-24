@@ -58,6 +58,27 @@ def _scaffold_env(app_dir: Path) -> None:
         print("[autoshorts] 이 파일을 열어 ANTHROPIC_API_KEY를 채운 뒤 다시 실행해주세요.")
 
 
+def _scaffold_default_assets(app_dir: Path) -> None:
+    # defense-in-depth alongside build.bat's own copy step - makes sure the
+    # folder (and its README explaining what to drop in) exists even if a
+    # worker deleted it, or ran a build that predates this feature.
+    assets_dir = app_dir / "default_assets"
+    assets_dir.mkdir(exist_ok=True)
+    readme_path = assets_dir / "README.txt"
+    if not readme_path.exists():
+        readme_path.write_text(
+            "이 폴더에 아래 파일명으로 이미지를 넣으면, \"완전 자동 모드\"로 만든 쇼츠에\n"
+            "해당 위치마다 자동으로 삽입됩니다. 사람이 직접 검토/선택하는 기존 방식\n"
+            "(리뷰 화면에서 매번 이미지를 올리는 경우)에는 영향을 주지 않습니다.\n\n"
+            "- logo_left.png (또는 .jpg) : 좌상단 로고\n"
+            "- logo_right.png (또는 .jpg) : 우상단 로고\n"
+            "- banner_bottom.png (또는 .jpg) : 하단 이미지\n\n"
+            "파일이 없으면 해당 위치는 그냥 비워둔 채로 렌더링됩니다. 나중에 파일을\n"
+            "추가/교체해도 프로그램을 다시 빌드할 필요 없이 바로 다음 작업부터 적용됩니다.\n",
+            encoding="utf-8",
+        )
+
+
 def _wait_for_server(port: int, timeout: float = 20.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -93,6 +114,7 @@ def main() -> None:
     _setup_ffmpeg_path(app_dir)
     _setup_default_font()
     _scaffold_env(app_dir)
+    _scaffold_default_assets(app_dir)
 
     import uvicorn
 

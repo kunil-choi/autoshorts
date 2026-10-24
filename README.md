@@ -23,16 +23,24 @@
 9. 최종 렌더      - 배너·로고·수정된 자막까지 합성한 완성 mp4 생성
 ```
 
+위 1~9단계(리뷰·확인 흐름) 외에, 사람 확인 없이 전부 자동으로 진행하는 **완전
+자동 모드**도 별도 경로로 제공한다 - 입력(링크/파일), 목표 길이, 만들 개수만
+고르면 후보 선정 → 자막 맞춤법 교정 → 렌더링 → 유튜브 **비공개** 업로드까지
+한 번에 끝난다 (아래 "완전 자동 모드 설정" 참고). 기존 리뷰 흐름에는 영향을
+주지 않는다.
+
 ## 프로젝트 구조
 
 ```
 src/autoshorts/
-  sources/       - MediaSource 추상화 (YouTubeSource / UploadedFileSource)
-  transcript.py  - 자막/whisper 결과를 타임스탬프 있는 Segment로
-  analyze.py     - Claude로 후보 구간 제안 (hook/substantive/custom 티어)
-  clipbuild.py   - 여러 구간을 하드컷으로 이어붙이기
-  render.py      - 세로형(9:16) 쇼츠로 합성 (2단계: 초안 → 최종)
-webui/           - 로컬에서 띄우는 리뷰 웹앱 (FastAPI)
+  sources/            - MediaSource 추상화 (YouTubeSource / UploadedFileSource)
+  transcript.py       - 자막/whisper 결과를 타임스탬프 있는 Segment로
+  analyze.py          - Claude로 후보 구간 제안 (hook/substantive/custom 티어) + 자막 교정
+  clipbuild.py        - 여러 구간을 하드컷으로 이어붙이기
+  render.py           - 세로형(9:16) 쇼츠로 합성 (2단계: 초안 → 최종)
+  youtube_upload.py   - 완전 자동 모드의 유튜브 비공개 업로드 (YouTube Data API v3)
+webui/                - 로컬에서 띄우는 리뷰 웹앱 (FastAPI)
+default_assets/       - 완전 자동 모드에서 쓸 고정 로고/배너 이미지를 놓는 곳
 ```
 
 ## 현재 상태
@@ -60,6 +68,22 @@ cp webui/.env.example webui/.env
 
 - Python 3.11+, `ffmpeg`, 한글 폰트(`fonts-nanum` 등) 필요
 - Claude API 키(`ANTHROPIC_API_KEY`) 필요 - [console.anthropic.com](https://console.anthropic.com)
+
+## 완전 자동 모드 설정 (선택)
+
+이 모드까지 쓰려면 아래 두 가지를 준비한다 - 둘 다 안 해도 나머지 기능(1~9단계
+리뷰 흐름)은 그대로 쓸 수 있다.
+
+1. **유튜브 업로드 인증**: 구글 클라우드 콘솔에서 YouTube Data API v3를 켠
+   프로젝트의 OAuth 클라이언트(`client_secret.json`)를 발급받아, `webui/.env`와
+   같은 위치(배포본은 `.exe` 옆, 개발 중이면 `webui/` 폴더가 아니라 저장소
+   루트)에 `client_secret.json`이라는 이름으로 놓는다. 첫 업로드 때 브라우저가
+   한 번 뜨면서 업로드할 유튜브 채널 계정으로 로그인/동의하면, 그 뒤로는
+   `youtube_token.json`에 저장된 토큰으로 자동 재사용된다 (재로그인 불필요).
+2. **고정 로고/배너 이미지**: `default_assets/README.txt`를 참고해서
+   `logo_left.png`, `logo_right.png`, `banner_bottom.png` 중 필요한 파일을
+   그 폴더에 놓는다. 자동 모드는 사람이 매번 이미지를 올릴 수 없으므로 이
+   폴더에 있는 파일을 그대로 쓴다 - 없으면 그 자리는 비워둔 채로 렌더링된다.
 
 ## 로컬 리뷰 웹앱 실행
 
@@ -93,7 +117,9 @@ installer\build.bat
 1. 가상환경 생성 + `requirements.txt`/`pyinstaller` 설치
 2. 정적 ffmpeg 빌드를 다운로드해 `installer/ffmpeg_bin/`에 준비
 3. PyInstaller로 `dist/autoshorts/` 폴더에 `autoshorts.exe` 빌드
-4. ffmpeg와 `.env.example`을 그 폴더로 복사
+4. ffmpeg, `.env.example`, `default_assets/`를 그 폴더로 복사 (이전 빌드에
+   이미 있던 `.env`/`client_secret.json`/`youtube_token.json`/로고 이미지는
+   그대로 유지됨)
 
 빌드가 끝나면 `dist/autoshorts/` **폴더 전체**가 배포 가능한 결과물이다 - 이
 폴더를 zip으로 압축해서 다른 부서 PC에 풀어주면, 그쪽은 Python도 ffmpeg도

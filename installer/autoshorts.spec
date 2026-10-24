@@ -42,6 +42,12 @@ datas = [
 # faster_whisper asset gets bundled the same way automatically.
 datas += collect_data_files("faster_whisper")
 
+# googleapiclient ships bundled "static discovery" JSON documents (one per
+# Google API/version, including youtube v3) so build("youtube", "v3", ...)
+# doesn't need a network round-trip to Google's discovery service on every
+# call - same non-Python-data problem as faster_whisper above, same fix.
+datas += collect_data_files("googleapiclient")
+
 # libraries whose submodules PyInstaller's static analysis is known to miss
 # (dynamic/plugin-style imports it can't see just by reading the code)
 hiddenimports = [
@@ -62,6 +68,12 @@ hiddenimports = [
     "PIL",
     "yt_dlp",
     "multipart",
+    "googleapiclient",
+    "googleapiclient.discovery",
+    "googleapiclient.http",
+    "google_auth_oauthlib.flow",
+    "google.auth.transport.requests",
+    "google.oauth2.credentials",
 ]
 
 a = Analysis(

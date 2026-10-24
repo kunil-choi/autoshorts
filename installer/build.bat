@@ -30,12 +30,18 @@ powershell -ExecutionPolicy Bypass -File "installer\download_ffmpeg.ps1"
 if errorlevel 1 goto :error
 
 echo === Step 4/5: building with PyInstaller ===
-REM save the previous build's .env (API key etc.) before wiping the dist
-REM folder below - it lives inside dist\autoshorts, not in the source tree,
-REM so a rebuild would otherwise silently delete it and force re-entering
-REM the API key every single time.
-set "ENV_BACKUP=%TEMP%\autoshorts_env_backup_%RANDOM%.env"
-if exist "dist\autoshorts\.env" copy /Y "dist\autoshorts\.env" "%ENV_BACKUP%" >nul
+REM save files that only live inside dist\autoshorts, not the source tree,
+REM before wiping it below - a rebuild would otherwise silently delete the
+REM API key, the YouTube upload credentials, and any department logo/banner
+REM images dropped into default_assets\, forcing them all to be redone
+REM every single time.
+set "BACKUP_DIR=%TEMP%\autoshorts_build_backup_%RANDOM%"
+if exist "%BACKUP_DIR%" rmdir /s /q "%BACKUP_DIR%"
+mkdir "%BACKUP_DIR%"
+if exist "dist\autoshorts\.env" copy /Y "dist\autoshorts\.env" "%BACKUP_DIR%\.env" >nul
+if exist "dist\autoshorts\client_secret.json" copy /Y "dist\autoshorts\client_secret.json" "%BACKUP_DIR%\client_secret.json" >nul
+if exist "dist\autoshorts\youtube_token.json" copy /Y "dist\autoshorts\youtube_token.json" "%BACKUP_DIR%\youtube_token.json" >nul
+if exist "dist\autoshorts\default_assets" xcopy "dist\autoshorts\default_assets" "%BACKUP_DIR%\default_assets\" /E /I /Y >nul
 
 REM clear both the output AND PyInstaller's intermediate cache - a fresh
 REM zip re-download can give files timestamps that don't reliably increase
@@ -48,15 +54,28 @@ if exist "build" rmdir /s /q "build"
 pyinstaller installer\autoshorts.spec --distpath dist --workpath build --noconfirm
 if errorlevel 1 goto :error
 
-echo === Step 5/5: copying ffmpeg and .env.example next to the exe ===
+echo === Step 5/5: copying ffmpeg, .env.example, and default_assets next to the exe ===
 xcopy installer\ffmpeg_bin dist\autoshorts\ffmpeg_bin /E /I /Y
 copy /Y webui\.env.example dist\autoshorts\.env.example
+xcopy default_assets dist\autoshorts\default_assets /E /I /Y
 
-if exist "%ENV_BACKUP%" (
-    copy /Y "%ENV_BACKUP%" "dist\autoshorts\.env" >nul
-    del "%ENV_BACKUP%"
+if exist "%BACKUP_DIR%\.env" (
+    copy /Y "%BACKUP_DIR%\.env" "dist\autoshorts\.env" >nul
     echo Existing .env (API key etc.) carried over from the previous build.
 )
+if exist "%BACKUP_DIR%\client_secret.json" (
+    copy /Y "%BACKUP_DIR%\client_secret.json" "dist\autoshorts\client_secret.json" >nul
+    echo Existing client_secret.json carried over from the previous build.
+)
+if exist "%BACKUP_DIR%\youtube_token.json" (
+    copy /Y "%BACKUP_DIR%\youtube_token.json" "dist\autoshorts\youtube_token.json" >nul
+    echo Existing youtube_token.json carried over - no YouTube re-login needed.
+)
+if exist "%BACKUP_DIR%\default_assets" (
+    xcopy "%BACKUP_DIR%\default_assets" "dist\autoshorts\default_assets\" /E /I /Y >nul
+    echo Existing default_assets images carried over from the previous build.
+)
+rmdir /s /q "%BACKUP_DIR%"
 
 echo.
 echo ============================================================
