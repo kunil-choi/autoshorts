@@ -10,10 +10,10 @@
 
 1. 이 폴더(default_assets/) 바로 아래 - 모든 프로그램에 공통으로 쓰는 이미지
    - logo_left.png : 라디올라 코너 로고 (좌측 상단, 이미 포함됨)
-   - logo_right.jpg : KBS 1라디오 채널 로고 (우측 상단, 이미 포함됨)
+   - logo_right.png : KBS 1라디오 채널 로고 (우측 상단, 이미 포함됨)
 
 2. default_assets/<프로그램 키>/ 폴더 - 그 프로그램에만 쓰는 이미지
-   - leedaeho/banner_bottom.jpg : "성공예감 이대호입니다" 프로그램 로고
+   - leedaeho/banner_bottom.png : "성공예감 이대호입니다" 프로그램 로고
      (중앙 하단, 크게 표시됨, 이미 포함됨)
    - economy_show/banner_bottom.png : "경제쇼" 프로그램 로고
      (중앙 하단, 크게 표시됨, 이미 포함됨)

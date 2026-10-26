@@ -63,11 +63,26 @@ TITLE_FONTSIZE = 88
 ACCENT_COLOR = "gold"
 
 LOGO_IMAGE_HEIGHT = 210
-# real logo aspect ratios vary; cap width too (fit-in-box, not just height)
-# so two side-by-side logos can't overlap or run off a 1080px-wide canvas
-LOGO_IMAGE_MAX_WIDTH = 221
+# real logo aspect ratios vary widely - some supplied logos are very wide,
+# short wordmarks (as low as ~1:6.5 height:width), which a narrow width cap
+# crushes down to a sliver only a few dozen pixels tall. 380 leaves a safe
+# ~280px gap between the two top-corner logos at their widest even if both
+# hit this cap simultaneously (max width each + LOGO_MARGIN_X on a 1080px
+# canvas), while giving a wide wordmark actual room to be legible.
+LOGO_IMAGE_MAX_WIDTH = 380
 LOGO_MARGIN_X = 20
 LOGO_MARGIN_Y = 6
+# top-corner logos sit directly on the video with no padded band behind
+# them (unlike the bottom banner/guest-label/caption bands) - a white- or
+# light-colored logo (common: a transparent-background wordmark) can all
+# but disappear over light video content without some backing. This draws
+# a translucent box sized to the logo's own scaled footprint (not the
+# whole LOGO_IMAGE_MAX_WIDTH/HEIGHT box, which would look oversized for a
+# thin wordmark) so there's always contrast regardless of what's playing
+# underneath; a logo with its own solid background (most are) just sits on
+# top of it unnoticed.
+LOGO_BACKING_PAD = 14
+LOGO_BACKING_OPACITY = 0.55
 
 # the bottom band image - the worker-uploaded one from step 8 of the
 # manual review flow, or (완전 자동 모드) the source program's own logo,
@@ -469,6 +484,20 @@ def _logo_content_bbox(image_path: Path) -> tuple[int, int, int, int] | None:
         return None
 
 
+def _logo_scaled_size(bbox: tuple[int, int, int, int] | None) -> tuple[float, float]:
+    """The actual on-canvas (width, height) a top-corner logo renders at
+    after force_original_aspect_ratio=decrease fits it into the
+    LOGO_IMAGE_MAX_WIDTH x LOGO_IMAGE_HEIGHT box - used to size the backing
+    box in build_filter_complex to the logo's own footprint rather than the
+    (often much larger, for a thin wordmark) full box. Falls back to the
+    full box size when bbox is unavailable (PIL missing)."""
+    if bbox is None:
+        return (LOGO_IMAGE_MAX_WIDTH, LOGO_IMAGE_HEIGHT)
+    content_w, content_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    scale = min(LOGO_IMAGE_MAX_WIDTH / content_w, LOGO_IMAGE_HEIGHT / content_h)
+    return content_w * scale, content_h * scale
+
+
 def _logo_overlay_y(bbox: tuple[int, int, int, int] | None) -> int:
     """Vertical overlay offset for a top-corner logo, centered within the
     shared LOGO_IMAGE_HEIGHT box instead of just top-aligned - two logos of
@@ -479,11 +508,7 @@ def _logo_overlay_y(bbox: tuple[int, int, int, int] | None) -> int:
     (PIL missing), since the scaled height can't be computed without it.
     """
     base_y = TITLE_BAND_H + LOGO_MARGIN_Y
-    if bbox is None:
-        return base_y
-    content_w, content_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    scale = min(LOGO_IMAGE_MAX_WIDTH / content_w, LOGO_IMAGE_HEIGHT / content_h)
-    scaled_h = content_h * scale
+    _scaled_w, scaled_h = _logo_scaled_size(bbox)
     return base_y + round((LOGO_IMAGE_HEIGHT - scaled_h) / 2)
 
 
@@ -572,12 +597,23 @@ def build_filter_complex(
         crop_stage = (
             f"crop={bbox[2] - bbox[0]}:{bbox[3] - bbox[1]}:{bbox[0]}:{bbox[1]}," if bbox else ""
         )
+        scaled_w, scaled_h = _logo_scaled_size(bbox)
+        overlay_y = _logo_overlay_y(bbox)
+        box_x = max(0, LOGO_MARGIN_X - LOGO_BACKING_PAD)
+        box_y = max(0, overlay_y - LOGO_BACKING_PAD)
+        box_w = round(scaled_w + 2 * LOGO_BACKING_PAD)
+        box_h = round(scaled_h + 2 * LOGO_BACKING_PAD)
+        stages.append(
+            f"[{last}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
+            f"color=black@{LOGO_BACKING_OPACITY}:t=fill[lgbg1]"
+        )
+        last = "lgbg1"
         stages.append(
             f"[{idx}:v]{crop_stage}scale=w={LOGO_IMAGE_MAX_WIDTH}:h={LOGO_IMAGE_HEIGHT}:"
             f"force_original_aspect_ratio=decrease[lgimg{idx}]"
         )
         stages.append(
-            f"[{last}][lgimg{idx}]overlay=x={LOGO_MARGIN_X}:y={_logo_overlay_y(bbox)}[lg1]"
+            f"[{last}][lgimg{idx}]overlay=x={LOGO_MARGIN_X}:y={overlay_y}[lg1]"
         )
         last = "lg1"
 
@@ -588,13 +624,24 @@ def build_filter_complex(
         crop_stage = (
             f"crop={bbox[2] - bbox[0]}:{bbox[3] - bbox[1]}:{bbox[0]}:{bbox[1]}," if bbox else ""
         )
+        scaled_w, scaled_h = _logo_scaled_size(bbox)
+        overlay_y = _logo_overlay_y(bbox)
+        box_w = round(scaled_w + 2 * LOGO_BACKING_PAD)
+        box_h = round(scaled_h + 2 * LOGO_BACKING_PAD)
+        box_x = round(CANVAS_W - LOGO_MARGIN_X - scaled_w - LOGO_BACKING_PAD)
+        box_y = max(0, overlay_y - LOGO_BACKING_PAD)
+        stages.append(
+            f"[{last}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
+            f"color=black@{LOGO_BACKING_OPACITY}:t=fill[lgbg2]"
+        )
+        last = "lgbg2"
         stages.append(
             f"[{idx}:v]{crop_stage}scale=w={LOGO_IMAGE_MAX_WIDTH}:h={LOGO_IMAGE_HEIGHT}:"
             f"force_original_aspect_ratio=decrease[lgimg{idx}]"
         )
         stages.append(
             f"[{last}][lgimg{idx}]overlay=x=main_w-overlay_w-{LOGO_MARGIN_X}:"
-            f"y={_logo_overlay_y(bbox)}[lg2]"
+            f"y={overlay_y}[lg2]"
         )
         last = "lg2"
 
