@@ -67,12 +67,18 @@ def _scaffold_default_assets(app_dir: Path) -> None:
     readme_path = assets_dir / "README.txt"
     if not readme_path.exists():
         readme_path.write_text(
-            "이 폴더에 아래 파일명으로 이미지를 넣으면, \"완전 자동 모드\"로 만든 쇼츠에\n"
-            "해당 위치마다 자동으로 삽입됩니다. 사람이 직접 검토/선택하는 기존 방식\n"
-            "(리뷰 화면에서 매번 이미지를 올리는 경우)에는 영향을 주지 않습니다.\n\n"
-            "- logo_left.png (또는 .jpg) : 좌상단 로고\n"
-            "- logo_right.png (또는 .jpg) : 우상단 로고\n"
-            "- banner_bottom.png (또는 .jpg) : 하단 이미지\n\n"
+            "이 폴더의 이미지는 \"완전 자동 모드\"(수동 버튼이든, 등록된 프로그램을\n"
+            "자동 감지하는 스케줄러든)로 만든 쇼츠에 자동으로 삽입됩니다. 사람이 직접\n"
+            "검토/선택하는 기존 방식(리뷰 화면에서 매번 이미지를 올리는 경우)에는\n"
+            "영향을 주지 않습니다.\n\n"
+            "1. 이 폴더 바로 아래 - 모든 프로그램에 공통으로 쓰는 이미지\n"
+            "   - logo_right.jpg : KBS 1라디오 채널 로고\n"
+            "   - banner_bottom.png (또는 .jpg) : 라디올라 코너 로고\n\n"
+            "2. default_assets/<프로그램 키>/ 폴더 - 그 프로그램에만 쓰는 이미지\n"
+            "   - leedaeho/logo_left.jpg : \"성공예감 이대호입니다\" 프로그램 로고\n"
+            "   - economy_show/logo_left.png : \"경제쇼\" 프로그램 로고\n"
+            "   - 프로그램 폴더 안에 logo_right나 banner_bottom을 따로 넣으면 공통\n"
+            "     이미지 대신 그 프로그램에서만 그 파일을 우선 사용합니다.\n\n"
             "파일이 없으면 해당 위치는 그냥 비워둔 채로 렌더링됩니다. 나중에 파일을\n"
             "추가/교체해도 프로그램을 다시 빌드할 필요 없이 바로 다음 작업부터 적용됩니다.\n",
             encoding="utf-8",

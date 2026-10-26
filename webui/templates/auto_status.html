@@ -24,6 +24,8 @@
   <div id="overall">준비 중...</div>
   <div id="items"></div>
   <a class="home-link" href="/">처음으로</a>
+  &nbsp;|&nbsp;
+  <a class="home-link" href="/library">쇼츠 라이브러리</a>
 
   <script>
     const autoJobId = {{ auto_job_id | tojson }};
@@ -43,7 +45,8 @@
       const res = await fetch(`/auto-jobs/${autoJobId}`);
       const data = await res.json();
 
-      document.getElementById('video-title').textContent = data.video_title || '';
+      document.getElementById('video-title').textContent =
+        (data.program_name ? `[${data.program_name}] ` : '') + (data.video_title || '');
       const overall = document.getElementById('overall');
       overall.textContent = data.message || data.status;
       overall.classList.toggle('error', data.status === 'error');

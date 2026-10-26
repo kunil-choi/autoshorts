@@ -53,8 +53,10 @@ else:
 
 load_dotenv(REPO_ROOT / ".env")
 
-from autoshorts import analyze, clipbuild, render, youtube_upload  # noqa: E402
-from autoshorts.config import CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, get_clip_length_preset  # noqa: E402
+from autoshorts import analyze, clipbuild, library, render, scheduler, youtube_upload  # noqa: E402
+from autoshorts.config import (  # noqa: E402
+    CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, PROGRAMS, ProgramConfig, get_clip_length_preset,
+)
 from autoshorts.sources import UploadedFileSource, YouTubeSource  # noqa: E402
 from autoshorts.transcript import get_transcript_for_source  # noqa: E402
 
@@ -76,12 +78,23 @@ YOUTUBE_CLIENT_SECRET_FILE = Path(
 YOUTUBE_TOKEN_FILE = Path(os.environ.get("YOUTUBE_TOKEN_FILE") or str(REPO_ROOT / "youtube_token.json"))
 
 
-def _find_default_asset(name: str) -> Path | None:
-    for ext in (".png", ".jpg", ".jpeg"):
-        path = DEFAULT_ASSETS_DIR / f"{name}{ext}"
-        if path.is_file():
-            return path
+def _find_default_asset(name: str, program_key: str | None = None) -> Path | None:
+    """Look up a default_assets image, preferring a program-specific one
+    (default_assets/<program_key>/<name>.*) and falling back to the shared
+    one at default_assets/<name>.* - see default_assets/README.txt."""
+    search_dirs = ([DEFAULT_ASSETS_DIR / program_key] if program_key else []) + [DEFAULT_ASSETS_DIR]
+    for directory in search_dirs:
+        for ext in (".png", ".jpg", ".jpeg"):
+            path = directory / f"{name}{ext}"
+            if path.is_file():
+                return path
     return None
+
+
+# optional: a playlist on the worker's own channel (e.g. a "라디올라" corner
+# playlist) every auto-uploaded short also gets added to, in addition to
+# just sitting on the channel. Skipped entirely if unset.
+RADIHOLA_PLAYLIST_ID = os.environ.get("RADIHOLA_PLAYLIST_ID") or ""
 
 app = FastAPI(title="autoshorts")
 templates = Jinja2Templates(directory=str(WEBUI_DIR / "templates"))
@@ -498,25 +511,38 @@ async def create_auto_job(
             shutil.copyfileobj(file.file, f)
 
     AUTO_JOBS[auto_job_id] = {
-        "status": "starting", "message": "", "video_title": "", "items": [],
+        "status": "starting", "message": "", "video_title": "", "program_name": "", "items": [],
     }
     asyncio.create_task(
-        _run_auto_job(auto_job_id, source_type, url.strip(), upload_path, clip_length, count)
+        _run_auto_pipeline(auto_job_id, source_type, url.strip(), upload_path, clip_length, count)
     )
     return {"auto_job_id": auto_job_id}
 
 
-async def _run_auto_job(
+async def _run_auto_pipeline(
     auto_job_id: str,
     source_type: str,
     url: str,
     upload_path: Path | None,
     clip_length_key: str,
     count: int,
+    program: ProgramConfig | None = None,
 ) -> None:
+    """Runs the full unattended pipeline (candidates -> per-candidate
+    build/correct/render/upload) for one source, writing live progress into
+    AUTO_JOBS[auto_job_id] and a permanent record of each successful upload
+    into the library store (see library.py / the /library screen).
+
+    Shared by two callers: the manual "완전 자동 모드" button (create_auto_job
+    above, program=None - uses the shared default_assets/ root images) and
+    the scheduler (program set - uses that program's own default_assets/
+    subfolder and label, see _on_scheduler_new_video below).
+    """
     auto_job = AUTO_JOBS[auto_job_id]
     work_dir = _auto_job_work_dir(auto_job_id)
     loop = asyncio.get_event_loop()
+    source_label = program.name if program else ""
+    program_key = program.key if program else None
     try:
         auto_job.update(status="running", message="")
         result = await _prepare_source_and_candidates(
@@ -529,6 +555,8 @@ async def _run_auto_job(
         guest_label_guess = result["guest_label_guess"]
         candidates = result["candidates"]
         auto_job["video_title"] = result["video_title"]
+        if not source_label:
+            source_label = result["video_title"]
 
         if not candidates:
             raise RuntimeError("조건에 맞는 쇼츠 후보를 찾지 못했습니다.")
@@ -561,9 +589,9 @@ async def _run_auto_job(
                 assets = render.RenderAssets(
                     thumbnail_text=candidate.thumbnail_text,
                     guest_label=guest_label_guess,
-                    logo_top_left=_find_default_asset("logo_left"),
-                    logo_top_right=_find_default_asset("logo_right"),
-                    banner_bottom=_find_default_asset("banner_bottom"),
+                    logo_top_left=_find_default_asset("logo_left", program_key),
+                    logo_top_right=_find_default_asset("logo_right", program_key),
+                    banner_bottom=_find_default_asset("banner_bottom", program_key),
                 )
                 final_path = await loop.run_in_executor(
                     None, render.render_final, clip_path, cues, assets, item_dir / "final.mp4"
@@ -571,11 +599,26 @@ async def _run_auto_job(
 
                 item.update(status="uploading", message="유튜브에 비공개로 업로드 중...")
                 title_line1 = candidate.thumbnail_text.split("\n", 1)[0].strip() or candidate.title
-                youtube_url = await loop.run_in_executor(
+                upload_result = await loop.run_in_executor(
                     None, youtube_upload.upload_short, final_path, title_line1, candidate.summary,
                     YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE, "private",
                 )
-                item.update(status="done", message="완료", youtube_url=youtube_url)
+
+                if RADIHOLA_PLAYLIST_ID:
+                    try:
+                        await loop.run_in_executor(
+                            None, youtube_upload.add_to_playlist, upload_result.video_id,
+                            RADIHOLA_PLAYLIST_ID, YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE,
+                        )
+                    except Exception:  # noqa: BLE001 - the upload itself already succeeded; don't fail the item over this
+                        traceback.print_exc()
+
+                library.add_item(WORK_DIR, library.new_item(
+                    source_label=source_label, title=title_line1, summary=candidate.summary,
+                    thumbnail_text=candidate.thumbnail_text, video_id=upload_result.video_id,
+                    youtube_url=upload_result.url,
+                ))
+                item.update(status="done", message="완료", youtube_url=upload_result.url)
             except Exception as e:  # noqa: BLE001 - one item failing shouldn't stop the rest
                 traceback.print_exc()
                 item.update(status="error", message=str(e))
@@ -600,6 +643,7 @@ def auto_job_status(auto_job_id: str):
         "status": auto_job["status"],
         "message": auto_job["message"],
         "video_title": auto_job.get("video_title", ""),
+        "program_name": auto_job.get("program_name", ""),
         "items": auto_job.get("items", []),
     }
 
@@ -609,3 +653,85 @@ def auto_job_view(request: Request, auto_job_id: str):
     if auto_job_id not in AUTO_JOBS:
         raise HTTPException(404, "unknown auto job")
     return templates.TemplateResponse(request, "auto_status.html", {"auto_job_id": auto_job_id})
+
+
+# ---------------------------------------------------------------------
+# Scheduler: watches config.PROGRAMS's playlists and runs _run_auto_pipeline
+# on its own once each weekday's VOD shows up - see scheduler.py. Started
+# as a background task at app startup, below.
+# ---------------------------------------------------------------------
+
+async def _on_scheduler_new_video(program: ProgramConfig, video: scheduler.PlaylistVideo) -> None:
+    auto_job_id = uuid.uuid4().hex[:12]
+    work_dir = _auto_job_work_dir(auto_job_id)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    AUTO_JOBS[auto_job_id] = {
+        "status": "starting", "message": "", "video_title": video.title,
+        "program_name": program.name, "items": [],
+    }
+    print(f"[scheduler] {program.name}: 자동 작업 시작 (auto_job_id={auto_job_id}, {video.url})")
+    await _run_auto_pipeline(
+        auto_job_id, "url", video.url, None, program.clip_length_key, program.count, program=program,
+    )
+
+
+@app.on_event("startup")
+async def _start_scheduler() -> None:
+    # escape hatch for tests/dev tooling that spins up this app without
+    # wanting a forever-running background task making real network calls
+    # against the real PROGRAMS playlists; defaults on for actual use.
+    if os.environ.get("AUTOSHORTS_SCHEDULER_ENABLED", "1") == "0":
+        return
+    asyncio.create_task(scheduler.run_scheduler_loop(WORK_DIR, _on_scheduler_new_video, PROGRAMS))
+
+
+# ---------------------------------------------------------------------
+# /library: every short the automatic pipeline (manual button or
+# scheduler) has uploaded, so a worker can publish or delete each one
+# in-app instead of going to YouTube Studio - see library.py.
+# ---------------------------------------------------------------------
+
+@app.get("/library", response_class=HTMLResponse)
+def library_view(request: Request):
+    return templates.TemplateResponse(request, "library.html", {})
+
+
+@app.get("/library/items")
+def library_items():
+    return {"items": library.list_items(WORK_DIR)}
+
+
+@app.post("/library/items/{item_id}/publish")
+async def library_publish(item_id: str):
+    item = library.get_item(WORK_DIR, item_id)
+    if item is None:
+        raise HTTPException(404, "unknown library item")
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None, youtube_upload.set_privacy, item["video_id"], "public",
+            YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE,
+        )
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        raise HTTPException(502, f"공개 전환 실패: {e}") from e
+    updated = library.update_status(WORK_DIR, item_id, "public")
+    return {"item": updated}
+
+
+@app.post("/library/items/{item_id}/delete")
+async def library_delete(item_id: str):
+    item = library.get_item(WORK_DIR, item_id)
+    if item is None:
+        raise HTTPException(404, "unknown library item")
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None, youtube_upload.delete_video, item["video_id"],
+            YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE,
+        )
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        raise HTTPException(502, f"삭제 실패: {e}") from e
+    updated = library.update_status(WORK_DIR, item_id, "deleted")
+    return {"item": updated}

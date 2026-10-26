@@ -20,3 +20,9 @@ Pillow>=10.0.0
 google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.2.0
 google-auth-httplib2>=0.2.0
+# scheduler.py uses zoneinfo.ZoneInfo("Asia/Seoul") for the daily trigger
+# times. Linux/macOS ship an IANA tzdata database at the OS level that
+# zoneinfo reads directly, but Windows does not - without this package
+# installed there, ZoneInfo() raises ZoneInfoNotFoundError immediately on
+# startup. Harmless/unused extra weight on platforms that don't need it.
+tzdata>=2024.1

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>autoshorts - 쇼츠 라이브러리</title>
+  <style>
+    body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 15px; color: #444; margin-top: 28px; }
+    p.hint { font-size: 13px; color: #666; }
+    .item {
+      display: flex; gap: 12px; align-items: flex-start; border: 1px solid #ddd; border-radius: 8px;
+      padding: 12px; margin-bottom: 10px;
+    }
+    .item .body { flex: 1; min-width: 0; }
+    .item .badge {
+      display: inline-block; font-size: 11px; background: #eef4ff; color: #2563eb;
+      padding: 1px 8px; border-radius: 10px; margin-bottom: 4px;
+    }
+    .item .title { font-weight: 600; margin-bottom: 4px; }
+    .item .summary { font-size: 13px; color: #555; margin-bottom: 6px; }
+    .item .meta { font-size: 12px; color: #888; margin-bottom: 8px; }
+    .item .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .item .actions a, .item .actions button {
+      font-size: 13px; padding: 5px 10px; border-radius: 5px; border: 1px solid #ccc;
+      background: white; cursor: pointer; text-decoration: none; color: #333;
+    }
+    .item .actions .publish-btn { border-color: #16a34a; color: #16a34a; }
+    .item .actions .publish-btn:hover { background: #f0fdf4; }
+    .item .actions .delete-btn { border-color: #dc2626; color: #dc2626; }
+    .item .actions .delete-btn:hover { background: #fef2f2; }
+    .item.done { opacity: 0.6; }
+    .item .status-label { font-size: 12px; font-weight: 600; }
+    .status-label.public { color: #16a34a; }
+    .status-label.deleted { color: #dc2626; }
+    #empty { color: #888; font-size: 14px; }
+    #status-msg { margin: 10px 0; padding: 8px; border-radius: 6px; display: none; font-size: 13px; }
+    #status-msg.error { display: block; background: #fde2e2; }
+    a.home-link { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>🎬 쇼츠 라이브러리</h1>
+  <p class="hint">
+    완전 자동 모드(수동 버튼 + 등록된 프로그램 자동 감지)로 만들어 비공개로 올라간 쇼츠 목록입니다.
+    확인 후 공개할 것만 "공개로 전환"을 누르고, 안 쓸 것은 "삭제"하세요.
+  </p>
+  <p><a class="home-link" href="/">처음으로</a></p>
+
+  <div id="status-msg"></div>
+
+  <h2>검토 대기 중</h2>
+  <div id="pending-items"></div>
+  <div id="empty" style="display:none">아직 생성된 쇼츠가 없습니다.</div>
+
+  <h2>처리 완료</h2>
+  <div id="done-items"></div>
+
+  <script>
+    function fmtDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function setStatusMsg(msg, isError) {
+      const el = document.getElementById('status-msg');
+      el.textContent = msg || '';
+      el.classList.toggle('error', !!isError);
+      el.style.display = msg ? 'block' : 'none';
+    }
+
+    function renderPendingItem(item) {
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.innerHTML = `
+        <div class="body">
+          <span class="badge">${item.source_label || ''}</span>
+          <div class="title">${item.title}</div>
+          <div class="summary">${item.summary || ''}</div>
+          <div class="meta">${fmtDate(item.created_at)}</div>
+          <div class="actions">
+            <a href="${item.youtube_url}" target="_blank" rel="noopener">유튜브에서 보기</a>
+            <button type="button" class="publish-btn">공개로 전환</button>
+            <button type="button" class="delete-btn">삭제</button>
+          </div>
+        </div>
+      `;
+      div.querySelector('.publish-btn').addEventListener('click', () => doAction(item.id, 'publish', div));
+      div.querySelector('.delete-btn').addEventListener('click', () => doAction(item.id, 'delete', div));
+      return div;
+    }
+
+    function renderDoneItem(item) {
+      const div = document.createElement('div');
+      div.className = 'item done';
+      const label = item.status === 'public'
+        ? '<span class="status-label public">공개됨</span>'
+        : '<span class="status-label deleted">삭제됨</span>';
+      div.innerHTML = `
+        <div class="body">
+          <span class="badge">${item.source_label || ''}</span>
+          <div class="title">${item.title}</div>
+          <div class="meta">${fmtDate(item.created_at)} · ${label}</div>
+        </div>
+      `;
+      return div;
+    }
+
+    async function doAction(itemId, action, el) {
+      const verb = action === 'publish' ? '공개 전환' : '삭제';
+      if (action === 'delete' && !confirm(`정말 삭제할까요? 유튜브에서도 영상이 삭제됩니다.\n(${verb})`)) return;
+      setStatusMsg(`${verb} 처리 중...`, false);
+      try {
+        const res = await fetch(`/library/items/${itemId}/${action}`, { method: 'POST' });
+        if (!res.ok) throw new Error(await res.text());
+        setStatusMsg('', false);
+        await load();
+      } catch (err) {
+        setStatusMsg(`${verb} 실패: ` + err.message, true);
+      }
+    }
+
+    async function load() {
+      const res = await fetch('/library/items');
+      const data = await res.json();
+      const items = data.items || [];
+
+      const pendingEl = document.getElementById('pending-items');
+      const doneEl = document.getElementById('done-items');
+      pendingEl.innerHTML = '';
+      doneEl.innerHTML = '';
+
+      const pending = items.filter(it => it.status === 'private');
+      const done = items.filter(it => it.status !== 'private');
+
+      document.getElementById('empty').style.display = items.length ? 'none' : 'block';
+      if (!pending.length) {
+        pendingEl.innerHTML = '<p class="hint">검토 대기 중인 쇼츠가 없습니다.</p>';
+      } else {
+        pending.forEach(item => pendingEl.appendChild(renderPendingItem(item)));
+      }
+      done.forEach(item => doneEl.appendChild(renderDoneItem(item)));
+    }
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,20 +1,36 @@
 """Upload a rendered short to YouTube via the YouTube Data API v3, used by
-the fully-automatic work path (webui/server.py's /auto-jobs) to publish
-straight through without a worker manually using Studio.
+the fully-automatic work path (webui/server.py's /auto-jobs and the
+scheduler) to publish straight through without a worker manually using
+Studio - plus the handful of other calls webui/server.py's in-app "공개
+전환" library screen needs to manage what got uploaded (checking status,
+publishing, deleting, adding to a playlist) without leaving the app either.
 
 Requires a Google Cloud OAuth client (client_secret.json) for a project
 with the YouTube Data API v3 enabled, placed next to the app's .env. The
-first upload on a machine opens a real browser window for whoever's
-running it to sign into the department's YouTube channel once (installed-
-app OAuth flow - this is a local desktop tool, same as the rest of the
-app); after that, a refresh token is cached on disk and reused silently.
+first call on a machine opens a real browser window for whoever's running
+it to sign into the department's YouTube channel once (installed-app OAuth
+flow - this is a local desktop tool, same as the rest of the app); after
+that, a refresh token is cached on disk and reused silently.
+
+SCOPES covers full video management (upload/update/delete/playlists), not
+just upload - if youtube_token.json was created by an older build that only
+ever requested the upload-only scope, delete that file once to force a
+fresh consent screen covering the wider scope; a cached token can't silently
+gain scopes it wasn't originally granted.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = ["https://www.googleapis.com/auth/youtube"]
+
+
+@dataclass(frozen=True)
+class UploadResult:
+    video_id: str
+    url: str
 
 
 def get_credentials(client_secret_path: Path, token_path: Path):
@@ -47,6 +63,16 @@ def get_credentials(client_secret_path: Path, token_path: Path):
     return creds
 
 
+def _youtube_client(client_secret_path: Path, token_path: Path):
+    from googleapiclient.discovery import build
+
+    creds = get_credentials(client_secret_path, token_path)
+    # static_discovery (the default when googleapiclient ships a bundled
+    # discovery doc, which it does for "youtube v3") avoids an extra network
+    # round-trip to Google's discovery service on every single call.
+    return build("youtube", "v3", credentials=creds)
+
+
 def upload_short(
     video_path: Path,
     title: str,
@@ -54,22 +80,17 @@ def upload_short(
     client_secret_path: Path,
     token_path: Path,
     privacy_status: str = "private",
-) -> str:
-    """Upload video_path to YouTube and return its watch URL. Raises on any
-    failure (missing credentials, API error, quota exceeded) rather than
-    swallowing it - unlike analyze.py's best-effort Claude helpers, there's
-    no sensible fallback for "the upload didn't happen": the auto-pipeline
-    calling this needs to know so it can mark that item as failed instead
-    of silently reporting success without a real upload.
+) -> UploadResult:
+    """Upload video_path to YouTube and return its id/watch URL. Raises on
+    any failure (missing credentials, API error, quota exceeded) rather
+    than swallowing it - unlike analyze.py's best-effort Claude helpers,
+    there's no sensible fallback for "the upload didn't happen": the
+    auto-pipeline calling this needs to know so it can mark that item as
+    failed instead of silently reporting success without a real upload.
     """
-    from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
 
-    creds = get_credentials(client_secret_path, token_path)
-    # static_discovery (the default when googleapiclient ships a bundled
-    # discovery doc, which it does for "youtube v3") avoids an extra network
-    # round-trip to Google's discovery service on every single upload.
-    youtube = build("youtube", "v3", credentials=creds)
+    youtube = _youtube_client(client_secret_path, token_path)
     body = {
         "snippet": {
             "title": title[:100],
@@ -87,4 +108,43 @@ def upload_short(
     while response is None:
         _status, response = request.next_chunk()
     video_id = response["id"]
-    return f"https://youtu.be/{video_id}"
+    return UploadResult(video_id=video_id, url=f"https://youtu.be/{video_id}")
+
+
+def set_privacy(
+    video_id: str, privacy_status: str, client_secret_path: Path, token_path: Path,
+) -> None:
+    """Flip an already-uploaded video's privacyStatus (e.g. "private" ->
+    "public") - backs the in-app library's "공개 전환" button, so a worker
+    never has to go into YouTube Studio for this."""
+    youtube = _youtube_client(client_secret_path, token_path)
+    youtube.videos().update(
+        part="status",
+        body={"id": video_id, "status": {"privacyStatus": privacy_status}},
+    ).execute()
+
+
+def delete_video(video_id: str, client_secret_path: Path, token_path: Path) -> None:
+    """Delete an uploaded video outright - backs the library's "삭제"
+    button for shorts the worker decides not to keep."""
+    youtube = _youtube_client(client_secret_path, token_path)
+    youtube.videos().delete(id=video_id).execute()
+
+
+def add_to_playlist(
+    video_id: str, playlist_id: str, client_secret_path: Path, token_path: Path,
+) -> None:
+    """Add an already-uploaded video to a playlist on the same channel
+    (e.g. a "라디올라" corner playlist) - best-effort from the caller's
+    perspective (see webui/server.py), since a missing/invalid playlist id
+    shouldn't block the upload itself from counting as a success."""
+    youtube = _youtube_client(client_secret_path, token_path)
+    youtube.playlistItems().insert(
+        part="snippet",
+        body={
+            "snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {"kind": "youtube#video", "videoId": video_id},
+            }
+        },
+    ).execute()

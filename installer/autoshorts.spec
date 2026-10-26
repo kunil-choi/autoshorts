@@ -48,6 +48,12 @@ datas += collect_data_files("faster_whisper")
 # call - same non-Python-data problem as faster_whisper above, same fix.
 datas += collect_data_files("googleapiclient")
 
+# scheduler.py's ZoneInfo("Asia/Seoul") needs an IANA timezone database -
+# Windows (unlike Linux/macOS) has none at the OS level, so without the
+# tzdata package's data files bundled, the frozen app raises
+# ZoneInfoNotFoundError the moment the scheduler starts on a Windows PC.
+datas += collect_data_files("tzdata")
+
 # libraries whose submodules PyInstaller's static analysis is known to miss
 # (dynamic/plugin-style imports it can't see just by reading the code)
 hiddenimports = [
@@ -74,6 +80,7 @@ hiddenimports = [
     "google_auth_oauthlib.flow",
     "google.auth.transport.requests",
     "google.oauth2.credentials",
+    "tzdata",
 ]
 
 a = Analysis(
