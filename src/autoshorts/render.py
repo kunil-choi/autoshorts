@@ -72,17 +72,6 @@ LOGO_IMAGE_HEIGHT = 210
 LOGO_IMAGE_MAX_WIDTH = 380
 LOGO_MARGIN_X = 20
 LOGO_MARGIN_Y = 6
-# top-corner logos sit directly on the video with no padded band behind
-# them (unlike the bottom banner/guest-label/caption bands) - a white- or
-# light-colored logo (common: a transparent-background wordmark) can all
-# but disappear over light video content without some backing. This draws
-# a translucent box sized to the logo's own scaled footprint (not the
-# whole LOGO_IMAGE_MAX_WIDTH/HEIGHT box, which would look oversized for a
-# thin wordmark) so there's always contrast regardless of what's playing
-# underneath; a logo with its own solid background (most are) just sits on
-# top of it unnoticed.
-LOGO_BACKING_PAD = 14
-LOGO_BACKING_OPACITY = 0.55
 
 # the bottom band image - the worker-uploaded one from step 8 of the
 # manual review flow, or (완전 자동 모드) the source program's own logo,
@@ -597,23 +586,12 @@ def build_filter_complex(
         crop_stage = (
             f"crop={bbox[2] - bbox[0]}:{bbox[3] - bbox[1]}:{bbox[0]}:{bbox[1]}," if bbox else ""
         )
-        scaled_w, scaled_h = _logo_scaled_size(bbox)
-        overlay_y = _logo_overlay_y(bbox)
-        box_x = max(0, LOGO_MARGIN_X - LOGO_BACKING_PAD)
-        box_y = max(0, overlay_y - LOGO_BACKING_PAD)
-        box_w = round(scaled_w + 2 * LOGO_BACKING_PAD)
-        box_h = round(scaled_h + 2 * LOGO_BACKING_PAD)
-        stages.append(
-            f"[{last}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
-            f"color=black@{LOGO_BACKING_OPACITY}:t=fill[lgbg1]"
-        )
-        last = "lgbg1"
         stages.append(
             f"[{idx}:v]{crop_stage}scale=w={LOGO_IMAGE_MAX_WIDTH}:h={LOGO_IMAGE_HEIGHT}:"
             f"force_original_aspect_ratio=decrease[lgimg{idx}]"
         )
         stages.append(
-            f"[{last}][lgimg{idx}]overlay=x={LOGO_MARGIN_X}:y={overlay_y}[lg1]"
+            f"[{last}][lgimg{idx}]overlay=x={LOGO_MARGIN_X}:y={_logo_overlay_y(bbox)}[lg1]"
         )
         last = "lg1"
 
@@ -624,24 +602,13 @@ def build_filter_complex(
         crop_stage = (
             f"crop={bbox[2] - bbox[0]}:{bbox[3] - bbox[1]}:{bbox[0]}:{bbox[1]}," if bbox else ""
         )
-        scaled_w, scaled_h = _logo_scaled_size(bbox)
-        overlay_y = _logo_overlay_y(bbox)
-        box_w = round(scaled_w + 2 * LOGO_BACKING_PAD)
-        box_h = round(scaled_h + 2 * LOGO_BACKING_PAD)
-        box_x = round(CANVAS_W - LOGO_MARGIN_X - scaled_w - LOGO_BACKING_PAD)
-        box_y = max(0, overlay_y - LOGO_BACKING_PAD)
-        stages.append(
-            f"[{last}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
-            f"color=black@{LOGO_BACKING_OPACITY}:t=fill[lgbg2]"
-        )
-        last = "lgbg2"
         stages.append(
             f"[{idx}:v]{crop_stage}scale=w={LOGO_IMAGE_MAX_WIDTH}:h={LOGO_IMAGE_HEIGHT}:"
             f"force_original_aspect_ratio=decrease[lgimg{idx}]"
         )
         stages.append(
             f"[{last}][lgimg{idx}]overlay=x=main_w-overlay_w-{LOGO_MARGIN_X}:"
-            f"y={overlay_y}[lg2]"
+            f"y={_logo_overlay_y(bbox)}[lg2]"
         )
         last = "lg2"
 
