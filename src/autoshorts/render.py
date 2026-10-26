@@ -64,12 +64,11 @@ ACCENT_COLOR = "gold"
 
 LOGO_IMAGE_HEIGHT = 210
 # real logo aspect ratios vary widely - some supplied logos are very wide,
-# short wordmarks (as low as ~1:6.5 height:width), which a narrow width cap
-# crushes down to a sliver only a few dozen pixels tall. 380 leaves a safe
-# ~280px gap between the two top-corner logos at their widest even if both
-# hit this cap simultaneously (max width each + LOGO_MARGIN_X on a 1080px
-# canvas), while giving a wide wordmark actual room to be legible.
-LOGO_IMAGE_MAX_WIDTH = 380
+# short wordmarks (as low as ~1:6.5 height:width), which too narrow a
+# width cap crushes down to an illegible sliver. 260 is a middle ground,
+# checked by eye against the actual logos in use: legible without
+# dominating the frame (380 was tried first and looked oversized).
+LOGO_IMAGE_MAX_WIDTH = 260
 LOGO_MARGIN_X = 20
 LOGO_MARGIN_Y = 6
 
