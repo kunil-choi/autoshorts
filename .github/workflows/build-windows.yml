@@ -1,0 +1,68 @@
+name: Build Windows app
+
+# Builds the Windows one-click .exe (see installer/build.bat, which this
+# mirrors minus the local .env/client_secret.json backup dance - a fresh
+# CI runner never has those to begin with) on every push to main, and
+# publishes the result as the "latest-build" GitHub release - a single,
+# stable download link that always has the newest build, so a
+# non-technical worker doesn't need Python or PyInstaller installed
+# locally just to pick up a code change.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Download ffmpeg
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File installer/download_ffmpeg.ps1
+
+      - name: Build with PyInstaller
+        run: pyinstaller installer/autoshorts.spec --distpath dist --workpath build --noconfirm
+
+      - name: Assemble distributable folder
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force installer/ffmpeg_bin dist/autoshorts/ffmpeg_bin
+          Copy-Item -Force webui/.env.example dist/autoshorts/.env.example
+          Copy-Item -Recurse -Force default_assets dist/autoshorts/default_assets
+
+      - name: Zip build
+        shell: pwsh
+        run: Compress-Archive -Path dist/autoshorts -DestinationPath autoshorts-windows.zip
+
+      - name: Publish rolling "latest build" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-build
+          name: 최신 빌드 (자동, ${{ github.sha }})
+          body: |
+            커밋 ${{ github.sha }} 기준으로 자동 빌드된 최신 버전입니다.
+
+            **쓰는 법**: 아래 `autoshorts-windows.zip`을 받아서 압축을 풀고,
+            `autoshorts.exe`를 실행하세요 - Python이나 ffmpeg를 따로 설치할
+            필요 없습니다.
+
+            기존에 쓰던 폴더가 있다면, `.env`/`client_secret.json`/
+            `youtube_token.json`/`default_assets` 안의 로고 이미지는
+            새 폴더에 직접 복사해서 옮겨주세요 (이 자동 빌드는 그런 개인
+            설정 파일을 모르기 때문에 매번 빈 템플릿만 들어 있습니다).
+          prerelease: true
+          files: autoshorts-windows.zip
