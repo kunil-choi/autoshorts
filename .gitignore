@@ -22,8 +22,8 @@ default_assets/*
 # department's own private banner image dropped in locally.
 !default_assets/leedaeho/
 !default_assets/economy_show/
+!default_assets/logo_left.*
 !default_assets/logo_right.*
-!default_assets/banner_bottom.*
 client_secret.json
 youtube_token.json
 *.mp4

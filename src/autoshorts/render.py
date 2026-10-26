@@ -69,12 +69,15 @@ LOGO_IMAGE_MAX_WIDTH = 221
 LOGO_MARGIN_X = 20
 LOGO_MARGIN_Y = 6
 
-# the worker-uploaded bottom band image (step 8), the bottommost item
-# stacked in the bottom info band - flush against the very bottom edge of
-# the canvas.
-BOTTOM_IMAGE_BAND_H = 130
-BOTTOM_IMAGE_HEIGHT = 90
-BOTTOM_IMAGE_MAX_WIDTH = 900
+# the bottom band image - the worker-uploaded one from step 8 of the
+# manual review flow, or (완전 자동 모드) the source program's own logo,
+# sized deliberately larger than the two top-corner logos since it's
+# meant to stand out as the single most prominent brand mark on the clip,
+# not a small badge - the bottommost item stacked in the bottom info band,
+# flush against the very bottom edge of the canvas.
+BOTTOM_IMAGE_BAND_H = 260
+BOTTOM_IMAGE_HEIGHT = 220
+BOTTOM_IMAGE_MAX_WIDTH = 550
 BOTTOM_IMAGE_BAND_OPACITY = 0.75
 BOTTOM_IMAGE_BAND_TOP = CANVAS_H - BOTTOM_IMAGE_BAND_H
 
