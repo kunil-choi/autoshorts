@@ -16,14 +16,14 @@ installer/ffmpeg-download.zip
 installer/ffmpeg-extract-tmp/
 default_assets/*
 !default_assets/README.txt
-# per-program folders (see config.py's PROGRAMS) and the shared KBS 1R
-# channel logo ship committed to the repo - they're official, public
-# program/channel art, not a department's own custom banner image (e.g.
-# the 라디올라 corner logo, still to be added at default_assets/banner_bottom.*)
-# which stays untracked, placed locally per deployment.
+# per-program folders (see config.py's PROGRAMS), the shared KBS 1R channel
+# logo, and the 라디올라 corner logo ship committed to the repo - they're
+# this deployment's official program/channel/corner art, not some other
+# department's own private banner image dropped in locally.
 !default_assets/leedaeho/
 !default_assets/economy_show/
 !default_assets/logo_right.*
+!default_assets/banner_bottom.*
 client_secret.json
 youtube_token.json
 *.mp4

@@ -7,8 +7,7 @@
 
 1. 이 폴더(default_assets/) 바로 아래 - 모든 프로그램에 공통으로 쓰는 이미지
    - logo_right.jpg : KBS 1라디오 채널 로고 (이미 포함됨)
-   - banner_bottom.png (또는 .jpg) : 라디올라 코너 로고 - 아직 없음,
-     직접 넣어주세요 (하단 이미지로 쓰입니다)
+   - banner_bottom.png : 라디올라 코너 로고 (이미 포함됨, 하단 이미지로 쓰입니다)
 
 2. default_assets/<프로그램 키>/ 폴더 - 그 프로그램에만 쓰는 이미지
    - leedaeho/logo_left.jpg : "성공예감 이대호입니다" 프로그램 로고 (이미 포함됨)
