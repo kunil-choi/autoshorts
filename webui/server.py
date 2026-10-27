@@ -55,7 +55,7 @@ load_dotenv(REPO_ROOT / ".env")
 
 from autoshorts import analyze, clipbuild, library, render, scheduler, youtube_upload  # noqa: E402
 from autoshorts.config import (  # noqa: E402
-    CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, PROGRAMS, ProgramConfig, get_clip_length_preset,
+    CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, PROGRAMS, ProgramConfig, get_clip_length_preset, get_program,
 )
 from autoshorts.sources import UploadedFileSource, YouTubeSource  # noqa: E402
 from autoshorts.transcript import get_transcript_for_source  # noqa: E402
@@ -126,7 +126,11 @@ def _auto_job_work_dir(auto_job_id: str) -> Path:
 def index(request: Request):
     return templates.TemplateResponse(
         request, "index.html",
-        {"clip_length_presets": CLIP_LENGTH_PRESETS, "default_clip_length": DEFAULT_CLIP_LENGTH_PRESET},
+        {
+            "clip_length_presets": CLIP_LENGTH_PRESETS,
+            "default_clip_length": DEFAULT_CLIP_LENGTH_PRESET,
+            "programs": PROGRAMS,
+        },
     )
 
 
@@ -487,6 +491,7 @@ async def create_auto_job(
     file: UploadFile | None = None,
     clip_length: str = Form(DEFAULT_CLIP_LENGTH_PRESET),
     count: int = Form(3),
+    program_key: str = Form(""),
 ):
     if source_type not in ("url", "upload"):
         raise HTTPException(400, "source_type must be 'url' or 'upload'")
@@ -499,6 +504,13 @@ async def create_auto_job(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     count = max(AUTO_MIN_COUNT, min(count, AUTO_MAX_COUNT))
+
+    program: ProgramConfig | None = None
+    if program_key.strip():
+        try:
+            program = get_program(program_key.strip())
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
 
     auto_job_id = uuid.uuid4().hex[:12]
     work_dir = _auto_job_work_dir(auto_job_id)
@@ -514,7 +526,9 @@ async def create_auto_job(
         "status": "starting", "message": "", "video_title": "", "program_name": "", "items": [],
     }
     asyncio.create_task(
-        _run_auto_pipeline(auto_job_id, source_type, url.strip(), upload_path, clip_length, count)
+        _run_auto_pipeline(
+            auto_job_id, source_type, url.strip(), upload_path, clip_length, count, program=program,
+        )
     )
     return {"auto_job_id": auto_job_id}
 
@@ -534,9 +548,11 @@ async def _run_auto_pipeline(
     into the library store (see library.py / the /library screen).
 
     Shared by two callers: the manual "완전 자동 모드" button (create_auto_job
-    above, program=None - uses the shared default_assets/ root images) and
-    the scheduler (program set - uses that program's own default_assets/
-    subfolder and label, see _on_scheduler_new_video below).
+    above - program is the one the worker picked in the form, or None if they
+    left it on "선택 안함", which falls back to the shared default_assets/
+    root images with no bottom banner) and the scheduler (program is always
+    set, from PROGRAMS - uses that program's own default_assets/ subfolder
+    and label, see _on_scheduler_new_video below).
     """
     auto_job = AUTO_JOBS[auto_job_id]
     work_dir = _auto_job_work_dir(auto_job_id)
