@@ -212,28 +212,34 @@ def _propose_candidates_for_tier(
     tier: str,
     count: int,
     selection_philosophy: str,
+    cache_transcript: bool = False,
 ) -> list[Candidate]:
     min_sec, max_sec = clip_length.min_sec, clip_length.max_sec
-    system = SYSTEM_PROMPT_TEMPLATE.format(
+    instructions = SYSTEM_PROMPT_TEMPLATE.format(
         count=count,
         min_sec=min_sec,
         max_sec=max_sec,
         speaker_rule=_GUEST_CENTERED_RULE,
         selection_philosophy=selection_philosophy,
     )
+    # The transcript goes first, ahead of the tier-specific instructions, so
+    # every tier call for the same video starts with the same bytes (tools ->
+    # transcript). With cache_transcript the first tier writes that prefix to
+    # the prompt cache and later tiers read it at a tenth of the input price
+    # instead of paying for the whole transcript again.
+    transcript_block = {"type": "text", "text": f"영상 제목: {video_title}\n\n대본:\n{transcript_text}"}
+    if cache_transcript:
+        transcript_block["cache_control"] = {"type": "ephemeral"}
     message = client.messages.create(
         model=MODEL,
         max_tokens=4096,
-        system=system,
+        system=[transcript_block, {"type": "text", "text": instructions}],
         tools=[_candidate_tool(count)],
         tool_choice={"type": "tool", "name": "propose_shorts_candidates"},
         messages=[
             {
                 "role": "user",
-                "content": (
-                    f"영상 제목: {video_title}\n\n"
-                    f"대본:\n{transcript_text}"
-                ),
+                "content": "위 영상 제목과 대본에서 조건에 맞는 쇼츠 구간을 골라 제시해라.",
             }
         ],
     )
@@ -342,11 +348,15 @@ def propose_candidates(
     if custom_topic:
         tier_specs.append(("custom", 5, _custom_topic_philosophy(custom_topic, count=5)))
 
+    # A cache write costs 1.25x the input price, so it only pays off when a
+    # second tier will read it back - a single-tier run stays uncached.
+    cache_transcript = len(tier_specs) > 1
     candidates: list[Candidate] = []
     for tier, count, selection_philosophy in tier_specs:
         candidates.extend(
             _propose_candidates_for_tier(
                 client, transcript_text, clip_length, video_title, tier, count, selection_philosophy,
+                cache_transcript=cache_transcript,
             )
         )
     return _snap_to_segment_boundaries(candidates, segments)
