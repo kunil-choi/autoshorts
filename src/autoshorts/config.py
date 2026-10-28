@@ -69,6 +69,11 @@ class ProgramConfig:
     # that channel isn't a KBS radio co-brand, it only shows its own single
     # logo in the top-left slot (see server.py's _run_auto_pipeline).
     show_top_right_logo: bool = True
+    # True (currently only 머니올라) means the source video is one
+    # continuous single-camera shot, not the KBS studios' static two-camera
+    # side-by-side composite - see render.find_speaker_crop's single_camera
+    # parameter, which this flows into.
+    single_camera: bool = False
 
 
 PROGRAMS: tuple[ProgramConfig, ...] = (
@@ -96,6 +101,7 @@ MONEYOLA = ProgramConfig(
     playlist_url="",
     broadcast_end_hour=0,
     show_top_right_logo=False,
+    single_camera=True,
 )
 
 # Superset used for looking a program up by key (manual "완전 자동 모드"

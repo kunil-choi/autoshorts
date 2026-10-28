@@ -251,6 +251,7 @@ def _face_crop_offset(
     scaled_w: float,
     scaled_h: float,
     src_w: float,
+    single_camera: bool = False,
 ) -> tuple[int, int] | None:
     """Given detected face boxes (x, y, w, h) in original-frame pixel coords,
     return the (x, y) crop offset - in scaled-frame pixel coords - that keeps
@@ -267,13 +268,24 @@ def _face_crop_offset(
     interview-style formats seat the person actually being quoted on that
     side - see analyze.py's _GUEST_CENTERED_RULE, which this crop bias is
     built to match).
+
+    single_camera skips that left/right clustering entirely: a true
+    single-camera shot (one continuous lens, e.g. 머니올라) has no seam to
+    avoid, so every detected face is real content in the same frame and a
+    plain weighted average across all of them is the right default (unlike
+    the two-camera composite case, blending both sides here would wrongly
+    bias toward whichever KBS-studio camera convention a given source
+    doesn't actually use).
     """
     if not faces:
         return None
-    midpoint = src_w / 2
-    left = [f for f in faces if f[0] + f[2] / 2 < midpoint]
-    right = [f for f in faces if f[0] + f[2] / 2 >= midpoint]
-    dominant = right if right else left
+    if single_camera:
+        dominant = faces
+    else:
+        midpoint = src_w / 2
+        left = [f for f in faces if f[0] + f[2] / 2 < midpoint]
+        right = [f for f in faces if f[0] + f[2] / 2 >= midpoint]
+        dominant = right if right else left
 
     total_area = 0.0
     weighted_x = 0.0
@@ -390,7 +402,9 @@ def _blind_right_biased_offset(
     return round(x_off), round(y_off)
 
 
-def find_speaker_crop(clip_path: Path, canvas_w: int, canvas_h: int) -> tuple[str, str]:
+def find_speaker_crop(
+    clip_path: Path, canvas_w: int, canvas_h: int, single_camera: bool = False,
+) -> tuple[str, str]:
     """Best-effort: sample a few frames from clip_path, detect faces, and
     return (crop_x, crop_y) ffmpeg crop-filter position values that keep the
     most prominent speaker in frame instead of a blind center crop. Falls
@@ -398,6 +412,14 @@ def find_speaker_crop(clip_path: Path, canvas_w: int, canvas_h: int) -> tuple[st
     detection runs but finds no faces at all, or to ffmpeg's own centered
     crop when detection can't run in the first place (opencv not installed,
     ffprobe/ffmpeg failure, etc.) - never raises.
+
+    single_camera (true for sources like 머니올라 that are a single
+    continuous shot, not a two-camera side-by-side composite like the KBS
+    radio sources) disables the left/right-camera clustering in
+    _face_crop_offset and, when no face is found at all, falls back to a
+    literal center crop instead of _blind_right_biased_offset's two-camera
+    guess - that guess assumes a studio layout this kind of source doesn't
+    have, and would otherwise push a real single subject off-frame.
     """
     try:
         import cv2  # noqa: F401
@@ -441,10 +463,18 @@ def find_speaker_crop(clip_path: Path, canvas_w: int, canvas_h: int) -> tuple[st
     finally:
         shutil.rmtree(frames_dir, ignore_errors=True)
 
-    offset = _face_crop_offset(all_faces, scale, canvas_w, canvas_h, scaled_w, scaled_h, src_w)
+    offset = _face_crop_offset(
+        all_faces, scale, canvas_w, canvas_h, scaled_w, scaled_h, src_w, single_camera=single_camera,
+    )
     if offset is None:
-        offset = _blind_right_biased_offset(scale, canvas_w, canvas_h, scaled_w, scaled_h, src_w)
-        print(f"[render] 샘플 프레임에서 얼굴을 찾지 못해 우측 인물을 기준으로 크롭합니다: x={offset[0]}, y={offset[1]}")
+        if single_camera:
+            max_x_off = max(0.0, scaled_w - canvas_w)
+            max_y_off = max(0.0, scaled_h - canvas_h)
+            offset = (round(max_x_off / 2), round(max_y_off / 2))
+            print(f"[render] 샘플 프레임에서 얼굴을 찾지 못해 가운데 크롭을 사용합니다: x={offset[0]}, y={offset[1]}")
+        else:
+            offset = _blind_right_biased_offset(scale, canvas_w, canvas_h, scaled_w, scaled_h, src_w)
+            print(f"[render] 샘플 프레임에서 얼굴을 찾지 못해 우측 인물을 기준으로 크롭합니다: x={offset[0]}, y={offset[1]}")
         return str(offset[0]), str(offset[1])
     print(f"[render] 얼굴 {len(all_faces)}개 인식, 크롭 위치 조정: x={offset[0]}, y={offset[1]}")
     return str(offset[0]), str(offset[1])
@@ -772,18 +802,24 @@ def render_final(
     assets: RenderAssets,
     out_path: Path,
     work_dir: Path | None = None,
+    single_camera: bool = False,
 ) -> Path:
     """Full composite (step 9): face-detected crop, title banner, uploaded
     logos/bottom image, guest label, and captions - pass in the same
     (start, end, text) cues shown at the draft stage, with the worker's
-    typo corrections applied to the text (see render_draft)."""
+    typo corrections applied to the text (see render_draft).
+
+    single_camera - see find_speaker_crop - defaults to False (the KBS
+    radio two-camera composite framing every existing caller before
+    머니올라 relies on); pass True for a genuine single-camera source.
+    """
     work_dir = work_dir or out_path.parent
     work_dir.mkdir(parents=True, exist_ok=True)
 
     local_display_font = _local_font(DISPLAY_FONT, work_dir)
 
     video_h = CANVAS_H - TITLE_BAND_H - BOTTOM_BAND_H
-    crop_x, crop_y = find_speaker_crop(clip_path, CANVAS_W, video_h)
+    crop_x, crop_y = find_speaker_crop(clip_path, CANVAS_W, video_h, single_camera=single_camera)
 
     filter_complex, v_label, a_label, extra_inputs = build_filter_complex(
         thumbnail_text=assets.thumbnail_text,

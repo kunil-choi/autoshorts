@@ -137,3 +137,20 @@ def test_blind_right_biased_offset_is_right_of_center():
     )
     center_x_off = (300.0 - 100) / 2  # what a plain center crop would use
     assert x_off > center_x_off
+
+
+def test_face_crop_offset_single_camera_averages_both_sides_instead_of_preferring_right():
+    # same two faces as test_face_crop_offset_prefers_right_side_faces, but a
+    # single continuous camera shot (e.g. 머니올라) has no studio-camera seam
+    # to dodge, so both faces are real subjects in one frame and should be
+    # averaged, not collapsed onto whichever one happens to sit on the right.
+    faces = [(10.0, 10.0, 50.0, 50.0), (200.0, 10.0, 50.0, 50.0)]
+    offset = _face_crop_offset(
+        faces, scale=1.0, canvas_w=100, canvas_h=100, scaled_w=300.0, scaled_h=300.0, src_w=300.0,
+        single_camera=True,
+    )
+    assert offset is not None
+    # midpoint of both face centers (35 and 225) is 130, close to frame
+    # center (150) - not pulled toward the right face alone like the
+    # two-camera default would (offset[0] > 100 there).
+    assert offset[0] < 100

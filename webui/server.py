@@ -17,6 +17,7 @@ concepts:
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
 import shutil
@@ -603,6 +604,7 @@ async def _run_auto_pipeline(
 
                 item.update(status="rendering", message="최종 렌더링 중...")
                 show_top_right_logo = program.show_top_right_logo if program else True
+                single_camera = program.single_camera if program else False
                 assets = render.RenderAssets(
                     thumbnail_text=candidate.thumbnail_text,
                     guest_label=guest_label_guess,
@@ -613,7 +615,11 @@ async def _run_auto_pipeline(
                     banner_bottom=_find_default_asset("banner_bottom", program_key),
                 )
                 final_path = await loop.run_in_executor(
-                    None, render.render_final, clip_path, cues, assets, item_dir / "final.mp4"
+                    None,
+                    functools.partial(
+                        render.render_final, clip_path, cues, assets, item_dir / "final.mp4",
+                        single_camera=single_camera,
+                    ),
                 )
 
                 item.update(status="uploading", message="유튜브에 비공개로 업로드 중...")
