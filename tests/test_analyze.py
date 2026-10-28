@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from autoshorts.analyze import (
     Candidate,
     ClipRange,
@@ -6,7 +8,9 @@ from autoshorts.analyze import (
     _hms_to_sec,
     _sec_to_hms,
     _snap_to_segment_boundaries,
+    propose_candidates,
 )
+from autoshorts.config import ClipLengthPreset
 from autoshorts.transcript import Segment
 
 
@@ -45,3 +49,47 @@ def test_custom_topic_philosophy_embeds_topic_and_count():
     text = _custom_topic_philosophy("금리 인상 관련 발언", count=3)
     assert "금리 인상 관련 발언" in text
     assert "3개보다 적게" in text
+
+
+class _RecordingClient:
+    """Stands in for anthropic.Anthropic: records each messages.create call
+    and answers with one valid candidate via the forced tool."""
+
+    def __init__(self):
+        self.calls = []
+        self.messages = self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        tool_use = SimpleNamespace(type="tool_use", input={"candidates": [{
+            "start_hms": "00:00", "end_hms": "00:20", "title": "t", "summary": "s",
+            "thumbnail_text": "a\nb", "reason": "r",
+        }]})
+        return SimpleNamespace(content=[tool_use])
+
+
+def _segments():
+    return [Segment(float(i * 10), float(i * 10 + 10), f"문장 {i}") for i in range(6)]
+
+
+def _preset():
+    return ClipLengthPreset(key="test", label="test", min_sec=15, max_sec=45)
+
+
+def test_tier_calls_share_a_cached_transcript_prefix():
+    client = _RecordingClient()
+    propose_candidates(_segments(), _preset(), ["hook", "substantive"], video_title="제목", client=client)
+    hook, substantive = client.calls
+    assert hook["tools"] == substantive["tools"]
+    assert hook["system"][0] == substantive["system"][0]
+    assert hook["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "문장 5" in hook["system"][0]["text"] and "제목" in hook["system"][0]["text"]
+    assert hook["system"][1]["text"] != substantive["system"][1]["text"]
+    assert "문장 5" not in hook["messages"][0]["content"]
+
+
+def test_single_tier_run_skips_the_cache_write():
+    client = _RecordingClient()
+    propose_candidates(_segments(), _preset(), ["hook"], client=client)
+    assert "cache_control" not in client.calls[0]["system"][0]
+
