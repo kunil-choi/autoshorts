@@ -68,6 +68,30 @@
         🚀 완전 자동으로 진행 (비공개 업로드까지)
       </button>
     </fieldset>
+
+    <fieldset style="margin-top:20px;border-color:#059669">
+      <legend>💰 머니올라 완전 자동 모드</legend>
+      <p style="font-size:13px;color:#666;margin-top:0">
+        위 완전 자동 모드와 동작은 동일하지만(비공개 업로드까지 자동), 머니올라
+        영상 전용입니다. 상단에는 라디올라+KBS1라디오 로고 대신 머니올라 로고만
+        들어가고, 하단에는 머니올라 원형 로고가 들어갑니다.
+      </p>
+      <label>머니올라 유튜브 링크
+        <input type="text" name="moneyola_url" placeholder="https://www.youtube.com/watch?v=..." style="width:100%">
+      </label>
+      <label>목표 길이:
+        <select name="moneyola_clip_length">
+          {% for preset in clip_length_presets %}
+          <option value="{{ preset.key }}" {% if preset.key == default_clip_length %}selected{% endif %}>{{ preset.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>만들 개수: <input type="number" name="moneyola_count" min="1" max="10" value="3" style="width:60px"></label>
+      <br>
+      <button type="button" id="moneyola-auto-submit-btn" style="margin-top:10px;background:#059669;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:15px;cursor:pointer">
+        💰 머니올라 완전 자동으로 진행 (비공개 업로드까지)
+      </button>
+    </fieldset>
   </form>
 
   <div id="status"></div>
@@ -115,6 +139,31 @@
       statusEl.textContent = '자동 작업을 시작합니다...';
 
       const formData = new FormData(form);
+      let autoJobId;
+      try {
+        const res = await fetch('/auto-jobs', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(await res.text());
+        ({ auto_job_id: autoJobId } = await res.json());
+      } catch (err) {
+        statusEl.classList.add('error');
+        statusEl.textContent = '오류: ' + err.message;
+        return;
+      }
+      window.location.href = `/auto-jobs/${autoJobId}/view`;
+    });
+
+    document.getElementById('moneyola-auto-submit-btn').addEventListener('click', async () => {
+      statusEl.style.display = 'block';
+      statusEl.classList.remove('error');
+      statusEl.textContent = '머니올라 자동 작업을 시작합니다...';
+
+      const formData = new FormData();
+      formData.set('source_type', 'url');
+      formData.set('url', form.elements['moneyola_url'].value.trim());
+      formData.set('clip_length', form.elements['moneyola_clip_length'].value);
+      formData.set('count', form.elements['moneyola_count'].value);
+      formData.set('program_key', 'moneyola');
+
       let autoJobId;
       try {
         const res = await fetch('/auto-jobs', { method: 'POST', body: formData });

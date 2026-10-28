@@ -63,6 +63,12 @@ class ProgramConfig:
     weekdays_only: bool = True
     clip_length_key: str = DEFAULT_CLIP_LENGTH_PRESET
     count: int = 5
+    # True for the two KBS 1 Radio programs: top-left gets this program's
+    # (or the shared) logo_left, top-right gets logo_right (KBS 1라디오).
+    # False (currently only 머니올라) skips the top-right logo entirely -
+    # that channel isn't a KBS radio co-brand, it only shows its own single
+    # logo in the top-left slot (see server.py's _run_auto_pipeline).
+    show_top_right_logo: bool = True
 
 
 PROGRAMS: tuple[ProgramConfig, ...] = (
@@ -80,9 +86,26 @@ PROGRAMS: tuple[ProgramConfig, ...] = (
     ),
 )
 
+# 머니올라 is a manual-link-only source (no fixed broadcast schedule, so the
+# scheduler never watches it - deliberately left out of PROGRAMS above).
+# broadcast_end_hour/weekdays_only are irrelevant here and just carry their
+# defaults.
+MONEYOLA = ProgramConfig(
+    key="moneyola",
+    name="머니올라",
+    playlist_url="",
+    broadcast_end_hour=0,
+    show_top_right_logo=False,
+)
+
+# Superset used for looking a program up by key (manual "완전 자동 모드"
+# dropdown, default_assets resolution). The scheduler loop must keep using
+# PROGRAMS directly, not this, or it would start polling 머니올라 too.
+ALL_PROGRAMS: tuple[ProgramConfig, ...] = PROGRAMS + (MONEYOLA,)
+
 
 def get_program(key: str) -> ProgramConfig:
-    for program in PROGRAMS:
+    for program in ALL_PROGRAMS:
         if program.key == key:
             return program
     raise ValueError(f"unknown program '{key}'")

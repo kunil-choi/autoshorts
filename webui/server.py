@@ -602,11 +602,14 @@ async def _run_auto_pipeline(
                 cues = [(s, e, t) for (s, e, _old), t in zip(cues, corrected_texts)]
 
                 item.update(status="rendering", message="최종 렌더링 중...")
+                show_top_right_logo = program.show_top_right_logo if program else True
                 assets = render.RenderAssets(
                     thumbnail_text=candidate.thumbnail_text,
                     guest_label=guest_label_guess,
                     logo_top_left=_find_default_asset("logo_left", program_key),
-                    logo_top_right=_find_default_asset("logo_right", program_key),
+                    logo_top_right=(
+                        _find_default_asset("logo_right", program_key) if show_top_right_logo else None
+                    ),
                     banner_bottom=_find_default_asset("banner_bottom", program_key),
                 )
                 final_path = await loop.run_in_executor(
