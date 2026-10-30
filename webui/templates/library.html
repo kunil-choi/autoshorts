@@ -173,8 +173,10 @@
             text = `✅ 오늘 ${src.made_today}개 생성`;
           } else if (!src.scheduled) {
             text = '오늘 아직 없음'; cls += ' idle';
-          } else if (src.scheduler_result === 'processing') {
-            text = '⏳ 자동 생성 중...';
+          } else if (src.running_message !== null) {
+            text = '⏳ 자동 생성 중' + (src.running_message ? ` - ${src.running_message}` : '...');
+          } else if (src.scheduler_result === 'interrupted') {
+            text = '⚠️ 자동 생성이 중간에 멈춤 (앱이 꺼졌을 수 있음)'; cls += ' warn';
           } else {
             text = '⚠️ 오늘 자동 생성 없음'; cls += ' warn';
           }
