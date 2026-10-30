@@ -44,9 +44,14 @@ jobs:
           Copy-Item -Force webui/.env.example dist/autoshorts/.env.example
           Copy-Item -Recurse -Force default_assets dist/autoshorts/default_assets
 
+      # Zip the folder's *contents* (not the autoshorts folder itself), so
+      # extracting into an existing install folder overwrites it in place
+      # instead of nesting a second autoshorts/ folder inside it. The zip
+      # has no .env / client_secret.json / youtube_token.json / work/, so
+      # overwriting never touches the user's own settings and data.
       - name: Zip build
         shell: pwsh
-        run: Compress-Archive -Path dist/autoshorts -DestinationPath autoshorts-windows.zip
+        run: Compress-Archive -Path dist/autoshorts/* -DestinationPath autoshorts-windows.zip
 
       - name: Publish rolling "latest build" release
         uses: softprops/action-gh-release@v2
@@ -56,13 +61,15 @@ jobs:
           body: |
             커밋 ${{ github.sha }} 기준으로 자동 빌드된 최신 버전입니다.
 
-            **쓰는 법**: 아래 `autoshorts-windows.zip`을 받아서 압축을 풀고,
-            `autoshorts.exe`를 실행하세요 - Python이나 ffmpeg를 따로 설치할
-            필요 없습니다.
+            **처음 설치**: 새 폴더(예: autoshorts)를 만들고 그 안에
+            `autoshorts-windows.zip`의 압축을 풀어, `autoshorts.exe`를
+            실행하세요 - Python이나 ffmpeg를 따로 설치할 필요 없습니다.
+            `.env.example`을 `.env`로 복사해 API 키를 넣어야 합니다.
 
-            기존에 쓰던 폴더가 있다면, `.env`/`client_secret.json`/
-            `youtube_token.json`/`default_assets` 안의 로고 이미지는
-            새 폴더에 직접 복사해서 옮겨주세요 (이 자동 빌드는 그런 개인
-            설정 파일을 모르기 때문에 매번 빈 템플릿만 들어 있습니다).
+            **업데이트**: autoshorts 앱을 완전히 종료(작업 표시줄/트레이
+            확인)한 뒤, 기존에 쓰던 폴더 안에 이 zip의 압축을 그대로 풀어
+            "덮어쓰기"하면 됩니다. `.env`, `client_secret.json`,
+            `youtube_token.json`, `work` 폴더(검토함 목록)는 zip에 들어
+            있지 않아서 그대로 유지됩니다.
           prerelease: true
           files: autoshorts-windows.zip
