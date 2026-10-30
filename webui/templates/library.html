@@ -127,7 +127,11 @@
       const studioWin = action === 'publish' ? window.open('', '_blank') : null;
       try {
         const res = await fetch(`/library/items/${itemId}/${action}`, { method: 'POST' });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          let text = await res.text();
+          try { text = JSON.parse(text).detail || text; } catch (e) { /* 이미 일반 문구 */ }
+          throw new Error(text);
+        }
         if (studioWin) studioWin.location = studioUrl(videoId);
         setStatusMsg(action === 'publish'
           ? '공개 전환 완료! 열린 유튜브 스튜디오 탭에서 권리관리 정책(Monetize-worldwide)과 수익창출을 설정하세요.'

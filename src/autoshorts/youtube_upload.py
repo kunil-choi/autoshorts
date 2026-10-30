@@ -126,9 +126,21 @@ def set_privacy(
 
 def delete_video(video_id: str, client_secret_path: Path, token_path: Path) -> None:
     """Delete an uploaded video outright - backs the library's "삭제"
-    button for shorts the worker decides not to keep."""
+    button for shorts the worker decides not to keep.
+
+    A video YouTube no longer has (already deleted in Studio) counts as
+    successfully deleted: the end state is what the worker wanted, and
+    raising would leave the item stuck in the library forever.
+    """
+    from googleapiclient.errors import HttpError
+
     youtube = _youtube_client(client_secret_path, token_path)
-    youtube.videos().delete(id=video_id).execute()
+    try:
+        youtube.videos().delete(id=video_id).execute()
+    except HttpError as e:
+        if e.resp.status == 404:
+            return
+        raise
 
 
 def add_to_playlist(
