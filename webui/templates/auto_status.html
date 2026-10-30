@@ -19,13 +19,14 @@
   </style>
 </head>
 <body>
+  {% set active = 'auto' %}{% include '_nav.html' %}
   <h1>🚀 완전 자동 작업 상태</h1>
   <p id="video-title"></p>
   <div id="overall">준비 중...</div>
   <div id="items"></div>
-  <a class="home-link" href="/">처음으로</a>
+  <a class="home-link" href="/auto">← 자동 생성으로</a>
   &nbsp;|&nbsp;
-  <a class="home-link" href="/library">쇼츠 라이브러리</a>
+  <a class="home-link" href="/library">검토함 보기</a>
 
   <script>
     const autoJobId = {{ auto_job_id | tojson }};
@@ -70,5 +71,6 @@
     }
     poll();
   </script>
+  <script src="/static/notify.js"></script>
 </body>
 </html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>autoshorts - 자동 생성</title>
+  <style>
+    body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+    h2 { font-size: 15px; color: #444; margin: 24px 0 8px; }
+    p.hint { font-size: 13px; color: #666; margin: 4px 0 8px; }
+    .card { border: 1px solid #d9dce3; border-left: 5px solid #16a34a; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+    .card.warn { border-left-color: #f59e0b; background: #fffbeb; }
+    .card.moneyola { border-left-color: #059669; }
+    .card .head { font-weight: 700; font-size: 15px; }
+    .card .state { font-size: 13px; color: #555; margin-left: 6px; font-weight: 400; }
+    details { margin-top: 8px; }
+    details summary { cursor: pointer; font-size: 13px; color: #5b6475; }
+    label { display: block; margin: 8px 0 2px; font-size: 13px; }
+    input[type=text] { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid #b9bfcb; border-radius: 6px; }
+    input[type=number] { width: 60px; }
+    .run { margin-top: 10px; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-size: 14px; cursor: pointer; background: #6d28d9; }
+    .run.green { background: #059669; }
+    #status { margin: 14px 0; padding: 10px; background: #f2f2f2; border-radius: 6px; display: none; }
+    #status.error { background: #fde2e2; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td { padding: 6px 4px; border-bottom: 1px solid #eee; }
+    td.err { color: #d97706; font-weight: 700; }
+  </style>
+</head>
+<body>
+  {% set active = 'auto' %}{% include '_nav.html' %}
+
+  <div id="status"></div>
+
+  <h2>📻 라디오 프로그램 (방송이 끝나면 자동 · 안 돌았을 때만 수동)</h2>
+  <p class="hint">평소에는 아무것도 누를 필요 없습니다. 오늘 자동 생성이 안 됐다면 해당 카드에서 "지금 실행"을 누르세요.
+    링크를 비워 두면 그 프로그램의 가장 최근 영상으로 만듭니다.</p>
+  {% for program in programs %}
+  <div class="card" id="card-{{ program.key }}" data-name="{{ program.name }}">
+    <div class="head">{{ program.name }}<span class="state" id="state-{{ program.key }}"></span></div>
+    <details id="det-{{ program.key }}">
+      <summary>수동 가동</summary>
+      <label>영상 링크 (비우면 최신 영상)
+        <input type="text" id="url-{{ program.key }}" placeholder="https://www.youtube.com/watch?v=...">
+      </label>
+      <label>목표 길이
+        <select id="len-{{ program.key }}">
+          {% for preset in clip_length_presets %}
+          <option value="{{ preset.key }}" {% if preset.key == program.clip_length_key %}selected{% endif %}>{{ preset.label }}</option>
+          {% endfor %}
+        </select>
+        &nbsp; 만들 개수 <input type="number" id="cnt-{{ program.key }}" min="1" max="10" value="{{ program.count }}">
+      </label>
+      <button type="button" class="run" onclick="runProgram('{{ program.key }}')">🚀 지금 실행 (비공개 업로드까지)</button>
+    </details>
+  </div>
+  {% endfor %}
+
+  <h2>💰 머니올라 (영상 링크를 넣을 때마다 사용)</h2>
+  <div class="card moneyola">
+    <div class="head">{{ moneyola.name }}<span class="state" id="state-{{ moneyola.key }}"></span></div>
+    <p class="hint">상단에는 머니올라 로고만, 하단에는 머니올라 원형 로고가 들어갑니다.</p>
+    <label>머니올라 유튜브 링크
+      <input type="text" id="url-moneyola" placeholder="https://www.youtube.com/watch?v=...">
+    </label>
+    <label>목표 길이
+      <select id="len-moneyola">
+        {% for preset in clip_length_presets %}
+        <option value="{{ preset.key }}" {% if preset.key == default_clip_length %}selected{% endif %}>{{ preset.label }}</option>
+        {% endfor %}
+      </select>
+      &nbsp; 만들 개수 <input type="number" id="cnt-moneyola" min="1" max="10" value="5">
+    </label>
+    <button type="button" class="run green" onclick="runProgram('moneyola')">💰 비공개로 자동 생성</button>
+  </div>
+
+  <h2>최근 실행 기록 <span class="hint">(앱을 다시 켜면 비워집니다)</span></h2>
+  <table id="recent"><tr><td class="hint">아직 실행 기록이 없습니다.</td></tr></table>
+
+  <script>
+    const statusEl = document.getElementById('status');
+
+    async function runProgram(key) {
+      statusEl.style.display = 'block';
+      statusEl.classList.remove('error');
+      statusEl.textContent = '자동 작업을 시작합니다...';
+      const formData = new FormData();
+      formData.set('source_type', 'url');
+      formData.set('url', document.getElementById('url-' + key).value.trim());
+      formData.set('clip_length', document.getElementById('len-' + key).value);
+      formData.set('count', document.getElementById('cnt-' + key).value);
+      formData.set('program_key', key);
+      try {
+        const res = await fetch('/auto-jobs', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(await res.text());
+        const { auto_job_id } = await res.json();
+        window.location.href = `/auto-jobs/${auto_job_id}/view`;
+      } catch (err) {
+        statusEl.classList.add('error');
+        statusEl.textContent = '오류: ' + err.message;
+      }
+    }
+
+    async function loadSummary() {
+      const data = await (await fetch('/auto/summary')).json();
+      data.sources.forEach(src => {
+        const stateEl = document.getElementById('state-' + src.key);
+        const card = document.getElementById('card-' + src.key);
+        if (!stateEl) return;
+        let text = '';
+        let warn = false;
+        if (src.made_today > 0) text = `✅ 오늘 ${src.made_today}개 생성`;
+        else if (!src.scheduled) text = '오늘 아직 없음';
+        else if (src.scheduler_result === 'processing') text = '⏳ 자동 생성 중...';
+        else { text = '⚠️ 오늘 자동 생성 없음'; warn = true; }
+        stateEl.textContent = text;
+        if (card) {
+          card.classList.toggle('warn', warn);
+          if (warn) document.getElementById('det-' + src.key).open = true;
+        }
+      });
+      const table = document.getElementById('recent');
+      if (data.recent_jobs.length) {
+        table.innerHTML = '';
+        data.recent_jobs.forEach(job => {
+          const tr = document.createElement('tr');
+          const failed = job.status === 'error';
+          tr.innerHTML = `<td>${job.program_name || '직접 입력'}</td><td>${job.video_title || ''}</td>
+            <td class="${failed ? 'err' : ''}">${failed ? '❌ 실패' : job.status === 'done' ? '✅ 완료' : '⏳ ' + job.status}</td>
+            <td><a href="/auto-jobs/${job.id}/view">상세</a></td>`;
+          table.appendChild(tr);
+        });
+      }
+    }
+    loadSummary();
+    setInterval(loadSummary, 15000);
+  </script>
+  <script src="/static/notify.js"></script>
+</body>
+</html>
