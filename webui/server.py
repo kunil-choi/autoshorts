@@ -170,12 +170,26 @@ def auto_summary():
     sources = []
     for program in ALL_PROGRAMS:
         prog_state = sched_state.get(program.key, {})
+        scheduler_result = prog_state.get("result") if prog_state.get("handled_date") == today else None
+        # This process's own running job for the program, if any. The
+        # scheduler's saved "processing" outlives the process that wrote it,
+        # so "processing" with no live job here means the app was closed or
+        # crashed mid-run: nothing is generating, and it must not keep
+        # showing "자동 생성 중...".
+        running = next(
+            (job for job in reversed(list(AUTO_JOBS.values()))
+             if job.get("program_name") == program.name and job.get("status") in ("starting", "running", "processing")),
+            None,
+        )
+        if scheduler_result == "processing" and running is None:
+            scheduler_result = "interrupted"
         sources.append({
             "key": program.key,
             "name": program.name,
             "scheduled": program is not MONEYOLA,
             "made_today": made_today.get(program.name, 0),
-            "scheduler_result": prog_state.get("result") if prog_state.get("handled_date") == today else None,
+            "scheduler_result": scheduler_result,
+            "running_message": (running.get("message") or "") if running else None,
         })
     recent = [
         {"id": job_id, "program_name": job.get("program_name", ""), "video_title": job.get("video_title", ""),
