@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>autoshorts - 쇼츠 라이브러리</title>
+  <title>autoshorts - 검토함</title>
   <style>
     body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
     h1 { font-size: 20px; }
@@ -34,22 +34,29 @@
     .status-label.public { color: #16a34a; }
     .status-label.deleted { color: #dc2626; }
     #empty { color: #888; font-size: 14px; }
+    .src-card { border: 1px solid #d9dce3; border-left: 5px solid #16a34a; border-radius: 8px;
+      padding: 8px 12px; margin-bottom: 8px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+    .src-card.warn { border-left-color: #f59e0b; background: #fffbeb; }
+    .src-card.idle { border-left-color: #059669; }
+    .src-card a { margin-left: auto; font-size: 13px; font-weight: 700; color: #6d28d9; text-decoration: none; }
+    #filters { margin: 8px 0 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+    #filters button { border: 1px solid #ccc; background: white; border-radius: 14px; padding: 3px 12px;
+      font-size: 12px; cursor: pointer; }
+    #filters button.on { background: #6d28d9; border-color: #6d28d9; color: white; }
     #status-msg { margin: 10px 0; padding: 8px; border-radius: 6px; display: none; font-size: 13px; }
     #status-msg.error { display: block; background: #fde2e2; }
     a.home-link { font-size: 13px; }
   </style>
 </head>
 <body>
-  <h1>🎬 쇼츠 라이브러리</h1>
-  <p class="hint">
-    완전 자동 모드(수동 버튼 + 등록된 프로그램 자동 감지)로 만들어 비공개로 올라간 쇼츠 목록입니다.
-    확인 후 공개할 것만 "공개로 전환"을 누르고, 안 쓸 것은 "삭제"하세요.
-  </p>
-  <p><a class="home-link" href="/">처음으로</a></p>
+  {% set active = 'library' %}{% include '_nav.html' %}
 
+  <div id="source-cards"></div>
   <div id="status-msg"></div>
 
   <h2>검토 대기 중</h2>
+  <p class="hint">확인 후 공개할 것만 "공개로 전환"을 누르고, 안 쓸 것은 "삭제"하세요.</p>
+  <div id="filters"></div>
   <div id="pending-items"></div>
   <div id="empty" style="display:none">아직 생성된 쇼츠가 없습니다.</div>
 
@@ -132,7 +139,51 @@
       }
     }
 
+    let activeSource = '';
+
+    function renderFilters(pending) {
+      const el = document.getElementById('filters');
+      const labels = [...new Set(pending.map(it => it.source_label).filter(Boolean))];
+      el.innerHTML = '';
+      if (labels.length < 2) { activeSource = ''; return; }
+      [['', `전체 ${pending.length}`], ...labels.map(l => [l, `${l} ${pending.filter(it => it.source_label === l).length}`])]
+        .forEach(([value, text]) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = text;
+          btn.className = value === activeSource ? 'on' : '';
+          btn.onclick = () => { activeSource = value; load(); };
+          el.appendChild(btn);
+        });
+    }
+
+    async function loadSourceCards() {
+      try {
+        const data = await (await fetch('/auto/summary')).json();
+        const el = document.getElementById('source-cards');
+        el.innerHTML = '';
+        data.sources.forEach(src => {
+          const div = document.createElement('div');
+          let text, cls = 'src-card';
+          if (src.made_today > 0) {
+            text = `✅ 오늘 ${src.made_today}개 생성`;
+          } else if (!src.scheduled) {
+            text = '오늘 아직 없음'; cls += ' idle';
+          } else if (src.scheduler_result === 'processing') {
+            text = '⏳ 자동 생성 중...';
+          } else {
+            text = '⚠️ 오늘 자동 생성 없음'; cls += ' warn';
+          }
+          div.className = cls;
+          div.innerHTML = `<b>${src.scheduled ? '📻' : '💰'} ${src.name}</b> ${text}
+            <a href="/auto">${src.made_today > 0 ? '자동 생성 화면' : (src.scheduled ? '지금 실행 →' : '링크 넣고 실행 →')}</a>`;
+          el.appendChild(div);
+        });
+      } catch (e) { /* 상태 카드가 없어도 검토 목록은 보여야 함 */ }
+    }
+
     async function load() {
+      loadSourceCards();
       const res = await fetch('/library/items');
       const data = await res.json();
       const items = data.items || [];
@@ -142,7 +193,9 @@
       pendingEl.innerHTML = '';
       doneEl.innerHTML = '';
 
-      const pending = items.filter(it => it.status === 'private');
+      const allPending = items.filter(it => it.status === 'private');
+      renderFilters(allPending);
+      const pending = activeSource ? allPending.filter(it => it.source_label === activeSource) : allPending;
       const done = items.filter(it => it.status !== 'private');
 
       document.getElementById('empty').style.display = items.length ? 'none' : 'block';

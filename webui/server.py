@@ -24,11 +24,12 @@ import shutil
 import sys
 import traceback
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -56,8 +57,10 @@ load_dotenv(REPO_ROOT / ".env")
 
 from autoshorts import analyze, clipbuild, library, render, scheduler, youtube_upload  # noqa: E402
 from autoshorts.config import (  # noqa: E402
-    CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, PROGRAMS, ProgramConfig, get_clip_length_preset, get_program,
+    ALL_PROGRAMS, CLIP_LENGTH_PRESETS, DEFAULT_CLIP_LENGTH_PRESET, MONEYOLA, PROGRAMS, ProgramConfig,
+    get_clip_length_preset, get_program,
 )
+from autoshorts.scheduler import KST  # noqa: E402
 from autoshorts.sources import UploadedFileSource, YouTubeSource  # noqa: E402
 from autoshorts.transcript import get_transcript_for_source  # noqa: E402
 
@@ -123,16 +126,63 @@ def _auto_job_work_dir(auto_job_id: str) -> Path:
     return WORK_DIR / "auto_jobs" / auto_job_id
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request):
+# 화면 구성: 검토함(/library, 첫 화면) / 자동 생성(/auto) / 수동 제작(/manual)
+@app.get("/")
+def index():
+    return RedirectResponse("/library")
+
+
+@app.get("/manual", response_class=HTMLResponse)
+def manual_view(request: Request):
     return templates.TemplateResponse(
-        request, "index.html",
+        request, "manual.html",
+        {
+            "clip_length_presets": CLIP_LENGTH_PRESETS,
+            "default_clip_length": DEFAULT_CLIP_LENGTH_PRESET,
+        },
+    )
+
+
+@app.get("/auto", response_class=HTMLResponse)
+def auto_view(request: Request):
+    return templates.TemplateResponse(
+        request, "auto.html",
         {
             "clip_length_presets": CLIP_LENGTH_PRESETS,
             "default_clip_length": DEFAULT_CLIP_LENGTH_PRESET,
             "programs": PROGRAMS,
+            "moneyola": MONEYOLA,
         },
     )
+
+
+@app.get("/auto/summary")
+def auto_summary():
+    """Today's state per source (the two radio programs + 머니올라) and the
+    most recent auto jobs, for the 검토함 status cards and the 자동 생성 page."""
+    today = datetime.now(KST).date().isoformat()
+    sched_state = scheduler._load_state(WORK_DIR)
+    made_today: dict[str, int] = {}
+    for it in library.list_items(WORK_DIR):
+        created = datetime.fromisoformat(it["created_at"]).astimezone(KST).date().isoformat()
+        if created == today:
+            made_today[it["source_label"]] = made_today.get(it["source_label"], 0) + 1
+    sources = []
+    for program in ALL_PROGRAMS:
+        prog_state = sched_state.get(program.key, {})
+        sources.append({
+            "key": program.key,
+            "name": program.name,
+            "scheduled": program is not MONEYOLA,
+            "made_today": made_today.get(program.name, 0),
+            "scheduler_result": prog_state.get("result") if prog_state.get("handled_date") == today else None,
+        })
+    recent = [
+        {"id": job_id, "program_name": job.get("program_name", ""), "video_title": job.get("video_title", ""),
+         "status": job.get("status", ""), "message": job.get("message", "")}
+        for job_id, job in reversed(list(AUTO_JOBS.items()))
+    ][:8]
+    return {"sources": sources, "recent_jobs": recent}
 
 
 @app.post("/jobs")
@@ -146,8 +196,6 @@ async def create_job(
 ):
     if source_type not in ("url", "upload"):
         raise HTTPException(400, "source_type must be 'url' or 'upload'")
-    if source_type == "url" and not url.strip():
-        raise HTTPException(400, "url is required")
     if source_type == "upload" and (file is None or not file.filename):
         raise HTTPException(400, "file is required")
     try:
@@ -512,6 +560,18 @@ async def create_auto_job(
             program = get_program(program_key.strip())
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
+
+    if source_type == "url" and not url.strip():
+        # A scheduled radio program with no link typed = "run it now on the
+        # latest VOD of its playlist" (the 자동 생성 page's manual retry).
+        if program is None or not program.playlist_url:
+            raise HTTPException(400, "url is required")
+        video = await asyncio.get_event_loop().run_in_executor(
+            None, scheduler.latest_playlist_video, program.playlist_url,
+        )
+        if video is None:
+            raise HTTPException(502, f"{program.name}의 최신 영상을 찾지 못했습니다. 링크를 직접 넣어 주세요.")
+        url = video.url
 
     auto_job_id = uuid.uuid4().hex[:12]
     work_dir = _auto_job_work_dir(auto_job_id)
