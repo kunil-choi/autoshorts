@@ -85,8 +85,8 @@
           </div>
         </div>
       `;
-      div.querySelector('.publish-btn').addEventListener('click', () => doAction(item.id, 'publish', div));
-      div.querySelector('.delete-btn').addEventListener('click', () => doAction(item.id, 'delete', div));
+      div.querySelector('.publish-btn').addEventListener('click', () => doAction(item.id, 'publish', item.video_id));
+      div.querySelector('.delete-btn').addEventListener('click', () => doAction(item.id, 'delete', item.video_id));
       return div;
     }
 
@@ -100,22 +100,34 @@
         <div class="body">
           <span class="badge">${item.source_label || ''}</span>
           <div class="title">${item.title}</div>
-          <div class="meta">${fmtDate(item.created_at)} · ${label}</div>
+          <div class="meta">${fmtDate(item.created_at)} · ${label}
+            ${item.status === 'public' ? ` · <a href="${studioUrl(item.video_id)}" target="_blank" rel="noopener">스튜디오에서 열기</a>` : ''}</div>
         </div>
       `;
       return div;
     }
 
-    async function doAction(itemId, action, el) {
+    function studioUrl(videoId) {
+      return `https://studio.youtube.com/video/${videoId}/edit`;
+    }
+
+    async function doAction(itemId, action, videoId) {
       const verb = action === 'publish' ? '공개 전환' : '삭제';
       if (action === 'delete' && !confirm(`정말 삭제할까요? 유튜브에서도 영상이 삭제됩니다.\n(${verb})`)) return;
       setStatusMsg(`${verb} 처리 중...`, false);
+      // Open the tab right now, inside the click, because browsers block
+      // window.open() once we've awaited the network call below.
+      const studioWin = action === 'publish' ? window.open('', '_blank') : null;
       try {
         const res = await fetch(`/library/items/${itemId}/${action}`, { method: 'POST' });
         if (!res.ok) throw new Error(await res.text());
-        setStatusMsg('', false);
+        if (studioWin) studioWin.location = studioUrl(videoId);
+        setStatusMsg(action === 'publish'
+          ? '공개 전환 완료! 열린 유튜브 스튜디오 탭에서 권리관리 정책(Monetize-worldwide)과 수익창출을 설정하세요.'
+          : '', false);
         await load();
       } catch (err) {
+        if (studioWin) studioWin.close();
         setStatusMsg(`${verb} 실패: ` + err.message, true);
       }
     }
