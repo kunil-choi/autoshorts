@@ -786,6 +786,27 @@ def library_items():
     return {"items": library.list_items(WORK_DIR)}
 
 
+@app.post("/library/sync")
+async def library_sync():
+    """Pull real privacy status from YouTube so shorts the worker already
+    published in Studio drop out of 검토 대기. Best-effort: never raises to
+    the page (a failed sync just leaves the list as it was), and never
+    starts the one-time browser login - it only runs once a token exists."""
+    pending = [it for it in library.list_items(WORK_DIR) if it["status"] == "private"]
+    if not pending or not YOUTUBE_TOKEN_FILE.is_file():
+        return {"changed": 0}
+    loop = asyncio.get_event_loop()
+    try:
+        statuses = await loop.run_in_executor(
+            None, youtube_upload.get_privacy_statuses, [it["video_id"] for it in pending],
+            YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE,
+        )
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return {"changed": 0, "error": str(e)}
+    return {"changed": library.mark_public_from_youtube(WORK_DIR, statuses)}
+
+
 @app.post("/library/items/{item_id}/publish")
 async def library_publish(item_id: str):
     item = library.get_item(WORK_DIR, item_id)

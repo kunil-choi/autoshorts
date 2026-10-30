@@ -102,3 +102,21 @@ def get_item(work_dir: Path, item_id: str) -> dict | None:
         if it["id"] == item_id:
             return it
     return None
+
+
+def mark_public_from_youtube(work_dir: Path, youtube_statuses: dict[str, str]) -> int:
+    """Move still-"private" items whose real YouTube privacyStatus is
+    "public" (the worker published them in Studio instead of here) to
+    "public". Returns how many changed. Items YouTube didn't report on are
+    left alone - absence can mean deleted, or just a different signed-in
+    account, so it's never treated as a reason to change anything."""
+    changed = 0
+    with _lock:
+        items = _load(work_dir)
+        for it in items:
+            if it["status"] == "private" and youtube_statuses.get(it["video_id"]) == "public":
+                it["status"] = "public"
+                changed += 1
+        if changed:
+            _save(work_dir, items)
+    return changed
