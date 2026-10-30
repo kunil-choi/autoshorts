@@ -211,7 +211,17 @@
       done.forEach(item => doneEl.appendChild(renderDoneItem(item)));
     }
 
+    // 스튜디오에서 직접 공개한 쇼츠를 유튜브 실제 상태와 맞춰 정리
+    async function syncWithYoutube() {
+      try {
+        const data = await (await fetch('/library/sync', { method: 'POST' })).json();
+        if (data.changed) load();
+      } catch (e) { /* 동기화 실패해도 목록은 그대로 */ }
+    }
+
     load();
+    syncWithYoutube();
+    setInterval(syncWithYoutube, 5 * 60 * 1000);
   </script>
   <script src="/static/notify.js"></script>
 </body>

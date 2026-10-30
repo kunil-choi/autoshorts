@@ -124,6 +124,24 @@ def set_privacy(
     ).execute()
 
 
+def get_privacy_statuses(
+    video_ids: list[str], client_secret_path: Path, token_path: Path,
+) -> dict[str, str]:
+    """Current privacyStatus ("private" | "unlisted" | "public") of each
+    given video, looked up in one videos.list call per 50 ids (1 quota
+    unit each - far cheaper than any write). Videos YouTube doesn't return
+    (deleted, or not visible to the signed-in account) are simply absent
+    from the result - callers must not read absence as "deleted"."""
+    youtube = _youtube_client(client_secret_path, token_path)
+    statuses: dict[str, str] = {}
+    for i in range(0, len(video_ids), 50):
+        chunk = video_ids[i:i + 50]
+        response = youtube.videos().list(part="status", id=",".join(chunk), maxResults=50).execute()
+        for item in response.get("items", []):
+            statuses[item["id"]] = item["status"]["privacyStatus"]
+    return statuses
+
+
 def delete_video(video_id: str, client_secret_path: Path, token_path: Path) -> None:
     """Delete an uploaded video outright - backs the library's "삭제"
     button for shorts the worker decides not to keep.
