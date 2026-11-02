@@ -40,6 +40,7 @@ def get_credentials(client_secret_path: Path, token_path: Path):
     without it, and the raw google-auth error for a missing file isn't
     helpful to a non-technical worker.
     """
+    from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -54,9 +55,17 @@ def get_credentials(client_secret_path: Path, token_path: Path):
     if token_path.is_file():
         creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                refreshed = True
+            except RefreshError:
+                # 저장된 토큰이 만료·취소됐다(invalid_grant). OAuth 동의 화면이 '테스트' 상태면
+                # 7일마다 이렇게 된다. 오류로 끝내지 않고 아래에서 브라우저 로그인을 다시 띄워
+                # 새 토큰을 받는다 - 안 그러면 youtube_token.json을 손으로 지워야 복구된다.
+                creds = None
+        if not refreshed:
             flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), SCOPES)
             creds = flow.run_local_server(port=0)
         token_path.write_text(creds.to_json())
