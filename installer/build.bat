@@ -42,6 +42,10 @@ if exist "dist\autoshorts\.env" copy /Y "dist\autoshorts\.env" "%BACKUP_DIR%\.en
 if exist "dist\autoshorts\client_secret.json" copy /Y "dist\autoshorts\client_secret.json" "%BACKUP_DIR%\client_secret.json" >nul
 if exist "dist\autoshorts\youtube_token.json" copy /Y "dist\autoshorts\youtube_token.json" "%BACKUP_DIR%\youtube_token.json" >nul
 if exist "dist\autoshorts\default_assets" xcopy "dist\autoshorts\default_assets" "%BACKUP_DIR%\default_assets\" /E /I /Y >nul
+REM work\ holds the shorts library history and the scheduler's
+REM state - wiping it would lose the history and make the scheduler treat
+REM the playlist as brand new.
+if exist "dist\autoshorts\work" xcopy "dist\autoshorts\work" "%BACKUP_DIR%\work\" /E /I /Y >nul
 
 REM clear both the output AND PyInstaller's intermediate cache - a fresh
 REM zip re-download can give files timestamps that don't reliably increase
@@ -74,6 +78,10 @@ if exist "%BACKUP_DIR%\youtube_token.json" (
 if exist "%BACKUP_DIR%\default_assets" (
     xcopy "%BACKUP_DIR%\default_assets" "dist\autoshorts\default_assets\" /E /I /Y >nul
     echo Existing default_assets images carried over from the previous build.
+)
+if exist "%BACKUP_DIR%\work" (
+    xcopy "%BACKUP_DIR%\work" "dist\autoshorts\work\" /E /I /Y >nul
+    echo Existing work folder - library history and scheduler state - carried over.
 )
 rmdir /s /q "%BACKUP_DIR%"
 
