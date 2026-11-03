@@ -50,6 +50,24 @@ CANVAS_H = 1920
 # reliably keeping the speaker centered.
 FACE_CROP_ZOOM = 1.2
 
+# Two-camera (side-by-side) sources have a white seam down the middle where
+# the two camera boxes meet. If the crop window reaches left of that seam it
+# shows up as a stray white line on the short's left edge. The window is
+# therefore kept entirely inside the speaker's half of the frame, which
+# needs that half (scaled) to be at least CANVAS_W wide plus this margin -
+# two_camera_zoom() raises the zoom as far as that takes. The margin also
+# covers the seam's own thickness and compression fuzz around it.
+SEAM_MARGIN_PX = 14
+
+
+def two_camera_zoom(src_w: float, src_h: float, canvas_w: int, canvas_h: int) -> float:
+    """Zoom (on top of the minimum fill-the-canvas scale) at which one half
+    of a side-by-side source is wide enough to fill the canvas by itself,
+    never less than FACE_CROP_ZOOM."""
+    base = max(canvas_w / src_w, canvas_h / src_h)
+    needed_scale = 2 * (canvas_w + SEAM_MARGIN_PX) / src_w
+    return max(FACE_CROP_ZOOM, needed_scale / base)
+
 # YouTube's Shorts shelf/grid thumbnail tiles crop a vertical video down
 # from the top instead of just scaling it - text sitting close to the top
 # edge of the canvas gets its top sliced off in those tiles even though it
@@ -316,6 +334,7 @@ def _face_crop_offset(
     """
     if not faces:
         return None
+    on_right = False
     if single_camera:
         dominant = faces
     else:
@@ -323,6 +342,7 @@ def _face_crop_offset(
         left = [f for f in faces if f[0] + f[2] / 2 < midpoint]
         right = [f for f in faces if f[0] + f[2] / 2 >= midpoint]
         dominant = right if right else left
+        on_right = bool(right)
 
     total_area = 0.0
     weighted_x = 0.0
@@ -338,8 +358,21 @@ def _face_crop_offset(
     max_x_off = max(0.0, scaled_w - canvas_w)
     max_y_off = max(0.0, scaled_h - canvas_h)
     x_off = min(max(0.0, face_x - canvas_w / 2), max_x_off)
+    if not single_camera:
+        x_off = _keep_off_seam(x_off, on_right, scaled_w, canvas_w, max_x_off)
     y_off = min(max(0.0, face_y - canvas_h / 3), max_y_off)
     return round(x_off), round(y_off)
+
+
+def _keep_off_seam(
+    x_off: float, on_right: bool, scaled_w: float, canvas_w: int, max_x_off: float,
+) -> float:
+    """Slide the crop window so it stays inside the speaker's half of a
+    two-camera frame (the seam sits at scaled_w / 2) - see SEAM_MARGIN_PX."""
+    seam = scaled_w / 2
+    if on_right:
+        return min(max(x_off, seam + SEAM_MARGIN_PX), max_x_off)
+    return max(min(x_off, seam - SEAM_MARGIN_PX - canvas_w), 0.0)
 
 
 # tried in order; side-lit/angled shots are often missed by the default
@@ -435,6 +468,7 @@ def _blind_right_biased_offset(
     max_y_off = max(0.0, scaled_h - canvas_h)
     target_x = src_w * _RIGHT_BIAS_FRACTION * scale
     x_off = min(max(0.0, target_x - canvas_w / 2), max_x_off)
+    x_off = _keep_off_seam(x_off, True, scaled_w, canvas_w, max_x_off)
     y_off = max_y_off / 2  # no vertical signal available - just center it
     return round(x_off), round(y_off)
 
@@ -473,7 +507,8 @@ def find_speaker_crop(
     # applies to its own scale stage - otherwise the offsets computed here
     # would reference a different scaled frame than the one ffmpeg actually
     # produces, and the crop would land on the wrong region entirely.
-    scale = max(canvas_w / src_w, canvas_h / src_h) * FACE_CROP_ZOOM
+    zoom = FACE_CROP_ZOOM if single_camera else two_camera_zoom(src_w, src_h, canvas_w, canvas_h)
+    scale = max(canvas_w / src_w, canvas_h / src_h) * zoom
     scaled_w, scaled_h = src_w * scale, src_h * scale
 
     frames_dir = clip_path.parent / "face_sample_frames"
@@ -590,6 +625,7 @@ def build_filter_complex(
     guest_label_text: str | None = None,
     crop_x: str = _CENTER_CROP[0],
     crop_y: str = _CENTER_CROP[1],
+    zoom: float = FACE_CROP_ZOOM,
 ) -> tuple[str, str, str, list[Path]]:
     """Return (filter_complex, video_map_label, audio_map_label, extra_inputs).
 
@@ -619,8 +655,8 @@ def build_filter_complex(
     # scale to FACE_CROP_ZOOM's inflated target, not the plain canvas size -
     # see find_speaker_crop, which computes crop_x/crop_y against this same
     # inflated scale so the two stay in sync
-    zoom_w = round(CANVAS_W * FACE_CROP_ZOOM)
-    zoom_h = round(video_h * FACE_CROP_ZOOM)
+    zoom_w = round(CANVAS_W * zoom)
+    zoom_h = round(video_h * zoom)
     stages = [
         f"[0:v]scale={zoom_w}:{zoom_h}:force_original_aspect_ratio=increase:flags=lanczos,"
         f"crop={CANVAS_W}:{video_h}:{crop_x}:{crop_y}[cropped]",
@@ -857,6 +893,10 @@ def render_final(
 
     video_h = CANVAS_H - TITLE_BAND_H - BOTTOM_BAND_H
     crop_x, crop_y = find_speaker_crop(clip_path, CANVAS_W, video_h, single_camera=single_camera)
+    zoom = FACE_CROP_ZOOM
+    dims = _probe_dimensions(clip_path)
+    if dims is not None and not single_camera:
+        zoom = two_camera_zoom(dims[0], dims[1], CANVAS_W, video_h)
 
     filter_complex, v_label, a_label, extra_inputs = build_filter_complex(
         thumbnail_text=assets.thumbnail_text,
@@ -866,7 +906,7 @@ def render_final(
         logo_top_right=assets.logo_top_right,
         banner_bottom=assets.banner_bottom,
         guest_label_text=with_shoot_date(assets.guest_label, assets.shoot_date, assets.date_kind) or None,
-        crop_x=crop_x, crop_y=crop_y,
+        crop_x=crop_x, crop_y=crop_y, zoom=zoom,
     )
     _run_ffmpeg(
         clip_path, work_dir, out_path, filter_complex, v_label, a_label, extra_inputs,
