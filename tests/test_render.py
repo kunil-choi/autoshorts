@@ -154,3 +154,24 @@ def test_face_crop_offset_single_camera_averages_both_sides_instead_of_preferrin
     # center (150) - not pulled toward the right face alone like the
     # two-camera default would (offset[0] > 100 there).
     assert offset[0] < 100
+
+
+def test_two_camera_zoom_makes_one_half_fill_the_canvas():
+    from autoshorts.render import SEAM_MARGIN_PX, two_camera_zoom
+
+    zoom = two_camera_zoom(1920, 1080, 1080, 906)
+    scale = max(1080 / 1920, 906 / 1080) * zoom
+    assert 1920 * scale / 2 >= 1080 + SEAM_MARGIN_PX - 1
+
+
+def test_face_crop_offset_never_shows_the_seam_for_right_side_speaker():
+    from autoshorts.render import SEAM_MARGIN_PX, two_camera_zoom
+
+    zoom = two_camera_zoom(1920, 1080, 1080, 906)
+    scale = max(1080 / 1920, 906 / 1080) * zoom
+    scaled_w, scaled_h = 1920 * scale, 1080 * scale
+    # speaker near the middle of the right half would otherwise pull the
+    # window left across the seam
+    faces = [(1100.0, 300.0, 150.0, 150.0)]
+    x_off, _ = _face_crop_offset(faces, scale, 1080, 906, scaled_w, scaled_h, 1920)
+    assert x_off >= scaled_w / 2 + SEAM_MARGIN_PX - 1
