@@ -248,6 +248,7 @@ async def _prepare_source_and_candidates(
     tiers: list[str],
     custom_topic: str,
     on_status,
+    program: ProgramConfig | None = None,
 ) -> dict:
     """Shared pipeline behind both the review-and-confirm flow (_run_job)
     and the fully-automatic flow (_run_auto_job): source setup, transcript,
@@ -294,6 +295,17 @@ async def _prepare_source_and_candidates(
             None, analyze.extract_guest_info, source.title, description
         )
 
+    # A 촬영 날짜 written in the source description (머니올라) is copied
+    # as-is. Anything else (radio programs, or a description without one)
+    # falls back to the video's publish date, labeled 방송 날짜.
+    desc_date = render.extract_shoot_date_from_description(description)
+    publish_date = render.format_shoot_date(getattr(source, "upload_date", None))
+    is_radio = program is not None and not program.single_camera
+    if desc_date and not is_radio:
+        shoot_date, date_kind = desc_date, "촬영"
+    else:
+        shoot_date, date_kind = publish_date, "방송"
+
     on_status("Claude로 쇼츠 후보 분석 중...")
     clip_length = get_clip_length_preset(clip_length_key)
     selected_tiers = [t for t in tiers if t in ("hook", "substantive")]
@@ -308,6 +320,8 @@ async def _prepare_source_and_candidates(
         "segments": segments,
         "transcript_source": transcript_source,
         "guest_label_guess": guest_label_guess,
+        "shoot_date": shoot_date,
+        "date_kind": date_kind,
         "candidates": candidates,
     }
 
@@ -334,6 +348,8 @@ async def _run_job(
         job["segments"] = result["segments"]
         job["transcript_source"] = result["transcript_source"]
         job["guest_label_guess"] = result["guest_label_guess"]
+        job["shoot_date"] = result["shoot_date"]
+        job["date_kind"] = result["date_kind"]
         job["candidates"] = [analyze.candidate_to_dict(c) for c in result["candidates"]]
         job.update(status="ready", message="완료")
     except Exception as e:  # noqa: BLE001 - surface any failure to the UI
@@ -374,6 +390,8 @@ def review(request: Request, job_id: str):
             "candidates": job["candidates"],
             "candidates_json": json.dumps(job["candidates"], ensure_ascii=False),
             "guest_label_guess": job.get("guest_label_guess", ""),
+            "shoot_date": job.get("shoot_date", ""),
+            "date_kind": job.get("date_kind", "촬영"),
         },
     )
 
@@ -461,6 +479,8 @@ async def create_final(
     captions: str = Form(...),
     thumbnail_text: str = Form(""),
     guest_label: str = Form(""),
+    shoot_date: str = Form(""),
+    date_kind: str = Form("촬영"),
     logo_top_left: UploadFile | None = None,
     logo_top_right: UploadFile | None = None,
     banner_bottom: UploadFile | None = None,
@@ -498,6 +518,8 @@ async def create_final(
     assets = render.RenderAssets(
         thumbnail_text=thumbnail_text,
         guest_label=guest_label,
+        shoot_date=shoot_date,
+        date_kind=date_kind if date_kind in ("촬영", "방송") else "촬영",
         logo_top_left=_save(logo_top_left, "logo_left", prev_assets.logo_top_left if prev_assets else None),
         logo_top_right=_save(logo_top_right, "logo_right", prev_assets.logo_top_right if prev_assets else None),
         banner_bottom=_save(banner_bottom, "banner_bottom", prev_assets.banner_bottom if prev_assets else None),
@@ -640,10 +662,13 @@ async def _run_auto_pipeline(
             work_dir, source_type, url, upload_path, clip_length_key,
             AUTO_DEFAULT_TIERS, "",
             on_status=lambda msg: auto_job.update(message=msg),
+            program=program,
         )
         source = result["source"]
         segments = result["segments"]
         guest_label_guess = result["guest_label_guess"]
+        shoot_date = result["shoot_date"]
+        date_kind = result["date_kind"]
         candidates = result["candidates"]
         auto_job["video_title"] = result["video_title"]
         if not source_label:
@@ -682,6 +707,8 @@ async def _run_auto_pipeline(
                 assets = render.RenderAssets(
                     thumbnail_text=candidate.thumbnail_text,
                     guest_label=guest_label_guess,
+                    shoot_date=shoot_date,
+                    date_kind=date_kind,
                     logo_top_left=_find_default_asset("logo_left", program_key),
                     logo_top_right=(
                         _find_default_asset("logo_right", program_key) if show_top_right_logo else None
@@ -698,8 +725,11 @@ async def _run_auto_pipeline(
 
                 item.update(status="uploading", message="유튜브에 비공개로 업로드 중...")
                 title_line1 = candidate.thumbnail_text.split("\n", 1)[0].strip() or candidate.title
+                description = candidate.summary
+                if shoot_date:
+                    description += f"\n[영상 {date_kind} 날짜: {shoot_date}]"
                 upload_result = await loop.run_in_executor(
-                    None, youtube_upload.upload_short, final_path, title_line1, candidate.summary,
+                    None, youtube_upload.upload_short, final_path, title_line1, description,
                     YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE, "private",
                 )
 

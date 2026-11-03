@@ -114,10 +114,47 @@ GUEST_LABEL_BOX_OPACITY = 0.75
 BOTTOM_BAND_H = CANVAS_H - GUEST_LABEL_BAND_TOP
 
 
+def format_shoot_date(date_str: str | None) -> str:
+    """"20261127" or "2026-11-27" -> "11월 27일" ("" if unparseable/empty)."""
+    digits = re.sub(r"\D", "", date_str or "")
+    if len(digits) != 8:
+        return ""
+    month, day = int(digits[4:6]), int(digits[6:8])
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return ""
+    return f"{month}월 {day}일"
+
+
+_DESC_DATE_RE = re.compile(
+    r"촬영\s*(?:날짜|일자|일)?\s*[:：]?\s*(?:\d{4}\s*[년.\-/]\s*)?"
+    r"(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*일?"
+)
+
+
+def extract_shoot_date_from_description(description: str | None) -> str:
+    """Find "촬영 날짜: 10월 27일" (머니올라 puts it in the video
+    description) and return it as "10월 27일"; "" if there isn't one."""
+    m = _DESC_DATE_RE.search(description or "")
+    if not m:
+        return ""
+    month, day = int(m.group(1)), int(m.group(2))
+    return f"{month}월 {day}일" if 1 <= month <= 12 and 1 <= day <= 31 else ""
+
+
+def with_shoot_date(guest_label: str, shoot_date: str, kind: str = "촬영") -> str:
+    """Append "[촬영 : 11월 27일]" (or "[방송 : ...]") to the guest label line."""
+    if not shoot_date:
+        return guest_label
+    tag = f"[{kind} : {shoot_date}]"
+    return f"{guest_label} {tag}" if guest_label else tag
+
+
 @dataclass
 class RenderAssets:
     thumbnail_text: str = ""
     guest_label: str = ""
+    shoot_date: str = ""  # e.g. "11월 27일"; shown after the guest label
+    date_kind: str = "촬영"  # "촬영" (머니올라) or "방송" (라디오 프로그램)
     logo_top_left: Path | None = None
     logo_top_right: Path | None = None
     banner_bottom: Path | None = None
@@ -828,7 +865,7 @@ def render_final(
         logo_top_left=assets.logo_top_left,
         logo_top_right=assets.logo_top_right,
         banner_bottom=assets.banner_bottom,
-        guest_label_text=assets.guest_label or None,
+        guest_label_text=with_shoot_date(assets.guest_label, assets.shoot_date, assets.date_kind) or None,
         crop_x=crop_x, crop_y=crop_y,
     )
     _run_ffmpeg(
