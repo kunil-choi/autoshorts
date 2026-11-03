@@ -362,6 +362,100 @@ def propose_candidates(
     return _snap_to_segment_boundaries(candidates, segments)
 
 
+_REFINE_CONTEXT_LINES = 6
+_REFINE_MIN_SEC = 10
+
+REFINE_TOOL = {
+    "name": "set_clip_boundaries",
+    "description": "쇼츠 구간의 시작 줄과 끝 줄을 문장이 온전한 위치로 확정한다.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "start_line": {"type": "integer", "description": "구간이 시작할 줄 번호(대본 앞의 [번호])"},
+            "end_line": {"type": "integer", "description": "구간이 끝날 줄 번호(포함)"},
+        },
+        "required": ["start_line", "end_line"],
+    },
+}
+
+
+def _segment_index_range(c: Candidate, segments: list[Segment]) -> tuple[int, int] | None:
+    start, end = c.ranges[0].start_sec, c.ranges[-1].end_sec
+    idxs = [i for i, s in enumerate(segments) if s.end_sec > start + 0.1 and s.start_sec < end - 0.1]
+    return (idxs[0], idxs[-1]) if idxs else None
+
+
+def refine_boundaries(
+    candidates: list[Candidate],
+    segments: list[Segment],
+    clip_length: ClipLengthPreset,
+    client: anthropic.Anthropic | None = None,
+) -> list[Candidate]:
+    """Second pass over single-range candidates: show Claude each candidate's
+    transcript lines plus a few lines on both sides and have it settle the
+    first/last line so the clip starts at the beginning of a sentence and
+    ends once the speaker has finished the thought. The initial proposal
+    only picks cue boundaries, and caption cues are fragments, so it often
+    starts mid-sentence or stops before the speaker is done.
+
+    Best-effort: any failure, or an answer that is out of bounds / too
+    long / too short, keeps that candidate's original range.
+    """
+    client = client or anthropic.Anthropic()
+    refined: list[Candidate] = []
+    for c in candidates:
+        if len(c.ranges) != 1:
+            refined.append(c)
+            continue
+        try:
+            refined.append(_refine_one(client, c, segments, clip_length))
+        except Exception as e:  # noqa: BLE001 - keep the original range rather than lose the candidate
+            print(f"[analyze] 구간 경계 보정 실패, 원래 구간 유지: {e}")
+            refined.append(c)
+    return refined
+
+
+def _refine_one(
+    client: anthropic.Anthropic, c: Candidate, segments: list[Segment], clip_length: ClipLengthPreset,
+) -> Candidate:
+    span = _segment_index_range(c, segments)
+    if span is None:
+        return c
+    first, last = span
+    lo = max(0, first - _REFINE_CONTEXT_LINES)
+    hi = min(len(segments) - 1, last + _REFINE_CONTEXT_LINES)
+    lines = "\n".join(
+        f"[{i}] ({_sec_to_hms(segments[i].start_sec)}-{_sec_to_hms(segments[i].end_sec)}) {segments[i].text}"
+        for i in range(lo, hi + 1)
+    )
+    message = client.messages.create(
+        model=MODEL,
+        max_tokens=512,
+        system=(
+            "너는 쇼츠 편집 보조다. 아래 대본은 자막 조각이라 문장 중간에서 끊겨 있을 수 있다. "
+            f"현재 후보 구간은 {first}번 줄부터 {last}번 줄까지다. 앞뒤 줄을 참고해서 구간을 다음처럼 확정해라:\n"
+            "- 시작 줄은 새 문장·새 발언이 시작되는 줄이어야 한다. 앞 줄에서 이어지는 말의 중간(조사·어미·"
+            "접속어로만 시작하거나, 앞 내용을 받는 말)이면 앞으로 더 가서 그 문장의 시작 줄을 잡아라.\n"
+            "- 끝 줄은 화자가 문장과 생각을 끝맺는 줄이어야 한다. 말이 이어지는 중이면 뒤로 더 가서 "
+            "끝맺는 줄까지 포함해라. 다음 화제를 꺼내는 줄은 포함하지 마라.\n"
+            "- 구간 전체의 핵심 내용은 유지하고, 주제와 무관한 앞뒤 줄은 넣지 마라.\n"
+            f"- 전체 길이는 {clip_length.max_sec}초를 넘으면 안 된다. 줄 번호는 {lo}~{hi} 안에서만 고른다."
+        ),
+        tools=[REFINE_TOOL],
+        tool_choice={"type": "tool", "name": "set_clip_boundaries"},
+        messages=[{"role": "user", "content": f"후보 제목: {c.title}\n요약: {c.summary}\n\n대본:\n{lines}"}],
+    )
+    data = next(b for b in message.content if b.type == "tool_use").input
+    new_first, new_last = int(data["start_line"]), int(data["end_line"])
+    if not (lo <= new_first <= new_last <= hi):
+        return c
+    new_start, new_end = segments[new_first].start_sec, segments[new_last].end_sec
+    duration = new_end - new_start
+    if duration > clip_length.max_sec or duration < _REFINE_MIN_SEC:
+        return c
+    return replace(c, ranges=[ClipRange(start_sec=new_start, end_sec=new_end)])
+
+
 def candidate_to_dict(c: Candidate) -> dict:
     d = asdict(c)
     d["tier_label"] = TIER_LABELS.get(c.tier, c.tier)
