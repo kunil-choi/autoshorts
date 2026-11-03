@@ -732,8 +732,12 @@ async def _run_auto_pipeline(
                 description = candidate.summary
                 if shoot_date:
                     description += f"\n[영상 {date_kind} 날짜: {shoot_date}]"
+                # 프로그램별 구분 표시를 제목 앞에 붙임 (주간 보고서 분류용, config.py 참고)
+                upload_title = (
+                    f"[{program.title_tag}] {title_line1}" if program and program.title_tag else title_line1
+                )
                 upload_result = await loop.run_in_executor(
-                    None, youtube_upload.upload_short, final_path, title_line1, description,
+                    None, youtube_upload.upload_short, final_path, upload_title, description,
                     YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE, "private",
                 )
 

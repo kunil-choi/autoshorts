@@ -74,6 +74,11 @@ class ProgramConfig:
     # side-by-side composite - see render.find_speaker_crop's single_camera
     # parameter, which this flows into.
     single_camera: bool = False
+    # 업로드 제목 앞에 붙는 구분 표시 (예: "[라디올라] 제목"). 주간 보고서
+    # 프로그램(weekly-report)이 제목만 보고 라디올라/머니올라 쇼츠를 나누는
+    # 데 쓰므로 값을 바꾸면 그쪽 분류 규칙(js/gas.js classifyVideo)도 같이
+    # 바꿔야 한다. 빈 문자열이면 표시를 붙이지 않는다.
+    title_tag: str = ""
 
 
 PROGRAMS: tuple[ProgramConfig, ...] = (
@@ -82,12 +87,14 @@ PROGRAMS: tuple[ProgramConfig, ...] = (
         name="성공예감 이대호입니다",
         playlist_url="https://www.youtube.com/playlist?list=PLFnESzVU01TEw0-QDaxnuLcKKoxlMiQpF",
         broadcast_end_hour=11,
+        title_tag="라디올라",
     ),
     ProgramConfig(
         key="economy_show",
         name="경제쇼",
         playlist_url="https://www.youtube.com/playlist?list=PLFnESzVU01TG3D5Gj2yrv21vkLiHS7If8",
         broadcast_end_hour=17,
+        title_tag="라디올라",
     ),
 )
 
@@ -102,6 +109,7 @@ MONEYOLA = ProgramConfig(
     broadcast_end_hour=0,
     show_top_right_logo=False,
     single_camera=True,
+    title_tag="머니올라",
 )
 
 # Superset used for looking a program up by key (manual "완전 자동 모드"
