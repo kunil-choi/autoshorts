@@ -127,7 +127,11 @@
       <input type="text" id="guest_label" style="width:100%" value="{{ guest_label_guess }}">
     </div>
     <div class="field">
-      <label>촬영 날짜 (영상에 [촬영 : 날짜]로 표시, 비우면 생략)</label>
+      <label>날짜 표시 (영상에 [촬영 : 날짜] 또는 [방송 : 날짜]로 표시, 비우면 생략)</label>
+      <select id="date_kind">
+        <option value="촬영" {{ 'selected' if date_kind == '촬영' else '' }}>촬영</option>
+        <option value="방송" {{ 'selected' if date_kind == '방송' else '' }}>방송</option>
+      </select>
       <input type="text" id="shoot_date" style="width:100%" placeholder="예: 11월 27일" value="{{ shoot_date }}">
     </div>
     <div class="field">
@@ -434,6 +438,7 @@
       formData.append('thumbnail_text', document.getElementById('thumbnail_text').value);
       formData.append('guest_label', document.getElementById('guest_label').value);
       formData.append('shoot_date', document.getElementById('shoot_date').value);
+      formData.append('date_kind', document.getElementById('date_kind').value);
       for (const id of ['logo_top_left', 'logo_top_right', 'banner_bottom']) {
         const fileInput = document.getElementById(id);
         if (fileInput.files.length) formData.append(id, fileInput.files[0]);
