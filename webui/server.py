@@ -324,6 +324,12 @@ async def _prepare_source_and_candidates(
         None, analyze.propose_candidates, segments, clip_length, selected_tiers,
         source.title, custom_topic or None,
     )
+    # 2nd pass: make each candidate start at a sentence start and end once
+    # the speaker has finished (best-effort, keeps the original on failure)
+    on_status("쇼츠 구간의 시작/끝을 문장 단위로 다듬는 중...")
+    candidates = await loop.run_in_executor(
+        None, analyze.refine_boundaries, candidates, segments, clip_length,
+    )
 
     return {
         "source": source,
@@ -701,12 +707,14 @@ async def _run_auto_pipeline(
             item_dir.mkdir(parents=True, exist_ok=True)
             try:
                 item.update(status="building", message="구간 추출/이어붙이는 중...")
-                clip_path = await loop.run_in_executor(
-                    None, clipbuild.build_clip, source, candidate.ranges, item_dir / "clip.mp4"
+                # cuts are moved into the nearest audio pauses, so captions
+                # must follow the ranges actually used, not the requested ones
+                clip_path, used_ranges = await loop.run_in_executor(
+                    None, clipbuild.build_clip_snapped, source, candidate.ranges, item_dir / "clip.mp4"
                 )
 
                 item.update(message="자막 맞춤법 교정 중...")
-                cues = render.captions_for_ranges(segments, candidate.ranges)
+                cues = render.captions_for_ranges(segments, used_ranges)
                 corrected_texts = await loop.run_in_executor(
                     None, analyze.correct_caption_errors, [c[2] for c in cues]
                 )
