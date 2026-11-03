@@ -295,17 +295,13 @@ async def _prepare_source_and_candidates(
             None, analyze.extract_guest_info, source.title, description
         )
 
-    # 머니올라: the source description states the 촬영 날짜 - copy it.
-    # Radio programs (라디올라): the VOD's publish date is the 방송 날짜.
-    # With no program known (manual flow), prefer a 촬영 date in the
-    # description, else fall back to the publish date as 방송 날짜.
+    # A 촬영 날짜 written in the source description (머니올라) is copied
+    # as-is. Anything else (radio programs, or a description without one)
+    # falls back to the video's publish date, labeled 방송 날짜.
     desc_date = render.extract_shoot_date_from_description(description)
     publish_date = render.format_shoot_date(getattr(source, "upload_date", None))
-    if program is not None and program.single_camera:
-        shoot_date, date_kind = desc_date, "촬영"
-    elif program is not None:
-        shoot_date, date_kind = publish_date, "방송"
-    elif desc_date:
+    is_radio = program is not None and not program.single_camera
+    if desc_date and not is_radio:
         shoot_date, date_kind = desc_date, "촬영"
     else:
         shoot_date, date_kind = publish_date, "방송"
