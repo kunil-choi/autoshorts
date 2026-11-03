@@ -96,6 +96,11 @@ class YouTubeSource(MediaSource):
     def description(self) -> str | None:
         return self._fetch_info().get("description")
 
+    @property
+    def upload_date(self) -> str | None:
+        """YYYYMMDD the source video was published (used as its 촬영 date)."""
+        return self._fetch_info().get("upload_date")
+
     def duration_sec(self) -> float:
         duration = self._fetch_info().get("duration")
         if duration is None:
