@@ -25,6 +25,7 @@ import sys
 import traceback
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -309,6 +310,12 @@ async def _prepare_source_and_candidates(
         shoot_date, date_kind = desc_date, "촬영"
     else:
         shoot_date, date_kind = publish_date, "방송"
+        if not shoot_date and is_radio:
+            # the radio VOD is posted the day it airs, so when YouTube
+            # didn't report a date, today's (KST) date is the best guess
+            shoot_date = render.format_shoot_date(datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d"))
+    if not shoot_date:
+        print("[date] 영상에서 촬영/방송 날짜를 찾지 못해 날짜 표시를 생략합니다.")
 
     on_status("Claude로 쇼츠 후보 분석 중...")
     clip_length = get_clip_length_preset(clip_length_key)
