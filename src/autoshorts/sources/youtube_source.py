@@ -98,8 +98,20 @@ class YouTubeSource(MediaSource):
 
     @property
     def upload_date(self) -> str | None:
-        """YYYYMMDD the source video was published (used as its 촬영 date)."""
-        return self._fetch_info().get("upload_date")
+        """YYYYMMDD the source video was published (used as its 촬영/방송
+        date). Falls back through the other date fields yt-dlp may fill
+        instead (release_date, then a unix timestamp, in KST) since which
+        ones are present varies with the player client in use."""
+        info = self._fetch_info()
+        for key in ("upload_date", "release_date"):
+            if info.get(key):
+                return str(info[key])
+        for key in ("release_timestamp", "timestamp"):
+            if info.get(key):
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                return datetime.fromtimestamp(float(info[key]), ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
+        return None
 
     def duration_sec(self) -> float:
         duration = self._fetch_info().get("duration")
