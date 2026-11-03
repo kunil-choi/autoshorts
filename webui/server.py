@@ -170,7 +170,11 @@ def auto_summary():
     sources = []
     for program in ALL_PROGRAMS:
         prog_state = sched_state.get(program.key, {})
-        scheduler_result = prog_state.get("result") if prog_state.get("handled_date") == today else None
+        scheduler_result = (
+            prog_state.get("result")
+            if today in (prog_state.get("handled_date"), prog_state.get("processed_date"))
+            else None
+        )
         # This process's own running job for the program, if any. The
         # scheduler's saved "processing" outlives the process that wrote it,
         # so "processing" with no live job here means the app was closed or

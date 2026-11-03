@@ -1,6 +1,6 @@
 """Watches a small, fixed set of radio programs' YouTube playlists
 (config.PROGRAMS) and kicks off the automatic shorts pipeline on its own
-once each weekday's VOD shows up - no worker needs to paste a link in for
+once each weekday's VOD(s) show up - no worker needs to paste a link in for
 these two programs. This is additive to, and independent of, the existing
 manual paths (review-and-confirm, and the one-off "완전 자동 모드" button),
 which still work exactly as before for any other video.
@@ -49,6 +49,15 @@ KST = ZoneInfo("Asia/Seoul")
 # after the broadcast ends.
 GIVE_UP_AFTER_HOURS = 4
 POLL_INTERVAL_SEC = 600  # 10 minutes
+# how many of the playlist's newest videos to look at per poll. Some
+# programs (이대호) upload each day as separate 1부/2부 videos, so more than
+# one new video can show up per day.
+PLAYLIST_SCAN_COUNT = 5
+# upper bound on new videos handled in a single poll - protects against
+# reprocessing a pile of old videos after the app was off for several days
+# (the newest ones win).
+MAX_NEW_VIDEOS_PER_POLL = 3
+SEEN_IDS_KEEP = 50
 
 
 @dataclass(frozen=True)
@@ -81,28 +90,35 @@ def _save_state(work_dir: Path, state: dict) -> None:
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def latest_playlist_video(playlist_url: str) -> PlaylistVideo | None:
-    """Return the most recently added video on playlist_url, or None on any
-    failure (network hiccup, yt-dlp error, empty playlist) - never raises,
-    since the scheduler loop just tries again on its next poll.
+def latest_playlist_videos(playlist_url: str, count: int = PLAYLIST_SCAN_COUNT) -> list[PlaylistVideo]:
+    """Return the newest `count` videos on playlist_url, newest first, or an
+    empty list on any failure (network hiccup, yt-dlp error, empty
+    playlist) - never raises, since the scheduler loop just tries again on
+    its next poll.
     """
     try:
-        opts = _base_ydl_opts({"extract_flat": True, "playlist_items": "1"})
+        opts = _base_ydl_opts({"extract_flat": True, "playlist_items": f"1-{count}"})
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(playlist_url, download=False)
-        entries = (info or {}).get("entries") or []
-        if not entries or not entries[0].get("id"):
-            return None
-        entry = entries[0]
-        video_id = entry["id"]
-        return PlaylistVideo(
-            id=video_id,
-            url=f"https://www.youtube.com/watch?v={video_id}",
-            title=entry.get("title") or "",
-        )
+        videos = []
+        for entry in (info or {}).get("entries") or []:
+            if not entry or not entry.get("id"):
+                continue
+            videos.append(PlaylistVideo(
+                id=entry["id"],
+                url=f"https://www.youtube.com/watch?v={entry['id']}",
+                title=entry.get("title") or "",
+            ))
+        return videos
     except Exception as e:  # noqa: BLE001 - a transient fetch failure must never take the scheduler loop down
         print(f"[scheduler] {playlist_url} 확인 실패: {e}")
-        return None
+        return []
+
+
+def latest_playlist_video(playlist_url: str) -> PlaylistVideo | None:
+    """The single newest video on playlist_url (None on failure/empty)."""
+    videos = latest_playlist_videos(playlist_url, 1)
+    return videos[0] if videos else None
 
 
 def trigger_datetime(program: ProgramConfig, on_date: date) -> datetime:
@@ -139,44 +155,57 @@ async def _poll_once(
     today = now.date().isoformat()
     prog_state = state.setdefault(program.key, {})
     if prog_state.get("handled_date") == today:
-        return  # already produced today's shorts, or already gave up today
+        return  # today's polling window is already closed
 
     if not should_check_now(program, now):
         if has_given_up_for_today(program, now):
-            print(f"[scheduler] {program.name}: 오늘({today}) 영상을 찾지 못해 포기합니다.")
+            # window over. If shorts were made today, keep that result;
+            # otherwise record that nothing showed up.
+            if prog_state.get("processed_date") == today:
+                print(f"[scheduler] {program.name}: 오늘({today}) 감시를 마칩니다.")
+            else:
+                print(f"[scheduler] {program.name}: 오늘({today}) 영상을 찾지 못해 포기합니다.")
+                prog_state["result"] = "not_found"
             prog_state["handled_date"] = today
-            prog_state["result"] = "not_found"
             _save_state(work_dir, state)
         return
 
-    video = latest_playlist_video(program.playlist_url)
-    if video is None:
+    videos = latest_playlist_videos(program.playlist_url)
+    if not videos:
         return
 
-    # first time we've ever seen this program's playlist (fresh install, or
-    # this feature's first run): record the current top video as the
-    # baseline without treating it as "new" - it may well be a video from
-    # before this feature existed, not something that just appeared.
-    if "last_video_id" not in prog_state:
+    # videos already handled (or present before this feature's first run).
+    # "last_video_id" is the older single-video state format.
+    if "seen_ids" not in prog_state:
+        prog_state["seen_ids"] = [prog_state["last_video_id"]] if "last_video_id" in prog_state else []
+        if not prog_state["seen_ids"]:
+            # first time we've ever seen this program's playlist: record
+            # what's there as the baseline without treating it as "new" -
+            # it may well be from before this feature existed.
+            prog_state["seen_ids"] = [v.id for v in videos]
+            prog_state["last_video_id"] = videos[0].id
+            _save_state(work_dir, state)
+            return
+    seen = prog_state["seen_ids"]
+
+    # a program can upload several videos a day (이대호: 1부 and 2부), so
+    # handle every unseen one, oldest first (1부 before 2부).
+    new_videos = [v for v in videos if v.id not in seen][:MAX_NEW_VIDEOS_PER_POLL]
+    for video in reversed(new_videos):
+        print(f"[scheduler] {program.name}: 새 영상 발견 - {video.title} ({video.id})")
+        seen.append(video.id)
+        del seen[:-SEEN_IDS_KEEP]
         prog_state["last_video_id"] = video.id
+        prog_state["processed_date"] = today
+        prog_state["result"] = "processing"
         _save_state(work_dir, state)
-        return
-
-    if video.id == prog_state["last_video_id"]:
-        return  # nothing new yet - keep polling
-
-    print(f"[scheduler] {program.name}: 새 영상 발견 - {video.title} ({video.id})")
-    prog_state["last_video_id"] = video.id
-    prog_state["handled_date"] = today
-    prog_state["result"] = "processing"
-    _save_state(work_dir, state)
-    try:
-        await on_new_video(program, video)
-        prog_state["result"] = "done"
-    except Exception:  # noqa: BLE001 - one program failing must not kill the loop
-        traceback.print_exc()
-        prog_state["result"] = "error"
-    _save_state(work_dir, state)
+        try:
+            await on_new_video(program, video)
+            prog_state["result"] = "done"
+        except Exception:  # noqa: BLE001 - one video failing must not stop the rest or kill the loop
+            traceback.print_exc()
+            prog_state["result"] = "error"
+        _save_state(work_dir, state)
 
 
 async def run_scheduler_loop(

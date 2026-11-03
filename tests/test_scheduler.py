@@ -63,7 +63,7 @@ def test_poll_once_seeds_baseline_without_triggering(tmp_path, monkeypatch):
         calls.append(video)
 
     video = scheduler.PlaylistVideo(id="abc123", url="https://x/abc123", title="t")
-    monkeypatch.setattr(scheduler, "latest_playlist_video", lambda url: video)
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [video])
 
     now = scheduler.trigger_datetime(program, date(2026, 10, 26))
     state = {}
@@ -82,7 +82,7 @@ def test_poll_once_triggers_on_new_video_after_baseline(tmp_path, monkeypatch):
         calls.append(video)
 
     new_video = scheduler.PlaylistVideo(id="new", url="https://x/new", title="new ep")
-    monkeypatch.setattr(scheduler, "latest_playlist_video", lambda url: new_video)
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [new_video])
 
     now = scheduler.trigger_datetime(program, date(2026, 10, 26))
     state = {program.key: {"last_video_id": "old"}}
@@ -90,7 +90,9 @@ def test_poll_once_triggers_on_new_video_after_baseline(tmp_path, monkeypatch):
 
     assert len(calls) == 1 and calls[0].id == "new"
     assert state[program.key]["last_video_id"] == "new"
-    assert state[program.key]["handled_date"] == now.date().isoformat()
+    assert state[program.key]["processed_date"] == now.date().isoformat()
+    # polling window stays open so a later 2부 upload is still picked up
+    assert "handled_date" not in state[program.key]
     assert state[program.key]["result"] == "done"
 
 
@@ -102,7 +104,7 @@ def test_poll_once_skips_unchanged_video(tmp_path, monkeypatch):
         calls.append(video)
 
     same_video = scheduler.PlaylistVideo(id="same", url="https://x/same", title="t")
-    monkeypatch.setattr(scheduler, "latest_playlist_video", lambda url: same_video)
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [same_video])
 
     now = scheduler.trigger_datetime(program, date(2026, 10, 26))
     state = {program.key: {"last_video_id": "same"}}
@@ -121,7 +123,7 @@ def test_poll_once_skips_if_already_handled_today(tmp_path, monkeypatch):
 
     # a different video is now available, but today is already marked handled
     different_video = scheduler.PlaylistVideo(id="different", url="https://x/d", title="t")
-    monkeypatch.setattr(scheduler, "latest_playlist_video", lambda url: different_video)
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [different_video])
 
     now = scheduler.trigger_datetime(program, date(2026, 10, 26))
     today = now.date().isoformat()
@@ -136,8 +138,8 @@ def test_poll_once_does_nothing_before_trigger_time(tmp_path, monkeypatch):
     program = _program()
     poll_called = []
     monkeypatch.setattr(
-        scheduler, "latest_playlist_video",
-        lambda url: poll_called.append(url) or None,
+        scheduler, "latest_playlist_videos",
+        lambda url: poll_called.append(url) or [],
     )
 
     async def fake_on_new_video(prog, video):
@@ -155,8 +157,8 @@ def test_poll_once_marks_given_up_without_polling_playlist(tmp_path, monkeypatch
     program = _program()
     poll_called = []
     monkeypatch.setattr(
-        scheduler, "latest_playlist_video",
-        lambda url: poll_called.append(url) or None,
+        scheduler, "latest_playlist_videos",
+        lambda url: poll_called.append(url) or [],
     )
 
     async def fake_on_new_video(prog, video):
@@ -175,7 +177,7 @@ def test_poll_once_records_error_without_raising(tmp_path, monkeypatch):
     program = _program()
 
     new_video = scheduler.PlaylistVideo(id="new", url="https://x/new", title="t")
-    monkeypatch.setattr(scheduler, "latest_playlist_video", lambda url: new_video)
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [new_video])
 
     async def failing_on_new_video(prog, video):
         raise RuntimeError("boom")
@@ -187,4 +189,65 @@ def test_poll_once_records_error_without_raising(tmp_path, monkeypatch):
     asyncio.run(scheduler._poll_once(tmp_path, state, program, now, failing_on_new_video))
 
     assert state[program.key]["result"] == "error"
-    assert state[program.key]["handled_date"] == now.date().isoformat()
+    assert state[program.key]["processed_date"] == now.date().isoformat()
+
+
+def test_poll_once_handles_part1_and_part2_on_the_same_day(tmp_path, monkeypatch):
+    program = _program()
+    part1 = scheduler.PlaylistVideo(id="p1", url="https://x/p1", title="1부")
+    part2 = scheduler.PlaylistVideo(id="p2", url="https://x/p2", title="2부")
+    playlist = [part1]  # newest first
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: list(playlist))
+
+    handled = []
+
+    async def fake_on_new_video(prog, video):
+        handled.append(video.id)
+
+    now = scheduler.trigger_datetime(program, date(2026, 10, 26))
+    state = {program.key: {"last_video_id": "old"}}
+
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
+    assert handled == ["p1"]
+
+    # nothing new on the next poll
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now + timedelta(minutes=10), fake_on_new_video))
+    assert handled == ["p1"]
+
+    # 2부 is uploaded later the same day
+    playlist.insert(0, part2)
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now + timedelta(minutes=20), fake_on_new_video))
+    assert handled == ["p1", "p2"]
+
+
+def test_poll_once_handles_both_parts_uploaded_together_oldest_first(tmp_path, monkeypatch):
+    program = _program()
+    part1 = scheduler.PlaylistVideo(id="p1", url="https://x/p1", title="1부")
+    part2 = scheduler.PlaylistVideo(id="p2", url="https://x/p2", title="2부")
+    old = scheduler.PlaylistVideo(id="old", url="https://x/old", title="어제")
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [part2, part1, old])
+
+    handled = []
+
+    async def fake_on_new_video(prog, video):
+        handled.append(video.id)
+
+    now = scheduler.trigger_datetime(program, date(2026, 10, 26))
+    state = {program.key: {"last_video_id": "old"}}
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
+
+    assert handled == ["p1", "p2"]  # 1부 before 2부, yesterday's video untouched
+
+
+def test_poll_once_keeps_done_result_when_window_closes(tmp_path):
+    program = _program()
+    now = scheduler.trigger_datetime(program, date(2026, 10, 26)) + timedelta(hours=5)
+    today = now.date().isoformat()
+    state = {program.key: {"processed_date": today, "result": "done"}}
+
+    async def fake_on_new_video(prog, video):
+        raise AssertionError("not expected")
+
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
+    assert state[program.key]["result"] == "done"
+    assert state[program.key]["handled_date"] == today
