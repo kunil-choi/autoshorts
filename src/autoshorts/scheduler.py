@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import traceback
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -40,7 +41,7 @@ from .config import PROGRAMS, ProgramConfig
 # them here; there's no separate `yt-dlp` CLI binary in the frozen build,
 # only the yt_dlp Python package, so this has to go through the same
 # YoutubeDL API youtube_source.py already uses, not a subprocess call.
-from .sources.youtube_source import _base_ydl_opts
+from .sources.youtube_source import YouTubeSource, _base_ydl_opts
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -53,10 +54,6 @@ POLL_INTERVAL_SEC = 600  # 10 minutes
 # programs (이대호) upload each day as separate 1부/2부 videos, so more than
 # one new video can show up per day.
 PLAYLIST_SCAN_COUNT = 5
-# upper bound on new videos handled in a single poll - protects against
-# reprocessing a pile of old videos after the app was off for several days
-# (the newest ones win).
-MAX_NEW_VIDEOS_PER_POLL = 3
 SEEN_IDS_KEEP = 50
 
 
@@ -65,6 +62,25 @@ class PlaylistVideo:
     id: str
     url: str
     title: str
+
+
+def part_key(title: str) -> str:
+    """Which episode of the day a video is: "1" for 1부, "2" for 2부, or
+    "single" when the title carries no 부 marker. Only one video per part per
+    day is processed."""
+    m = re.search(r"([1-9])\s*부", title)
+    return m.group(1) if m else "single"
+
+
+def video_broadcast_date(video_id: str) -> date | None:
+    """The (KST) date the video was published, or None if it can't be
+    determined right now (never raises - the scheduler retries next poll)."""
+    try:
+        raw = YouTubeSource(video_id).upload_date
+        return datetime.strptime(raw, "%Y%m%d").date() if raw else None
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 영상 날짜 확인 실패({video_id}): {e}")
+        return None
 
 
 OnNewVideo = Callable[[ProgramConfig, PlaylistVideo], Awaitable[None]]
@@ -188,13 +204,40 @@ async def _poll_once(
             return
     seen = prog_state["seen_ids"]
 
-    # a program can upload several videos a day (이대호: 1부 and 2부), so
-    # handle every unseen one, oldest first (1부 before 2부).
-    new_videos = [v for v in videos if v.id not in seen][:MAX_NEW_VIDEOS_PER_POLL]
-    for video in reversed(new_videos):
+    # Only videos published today (broadcast day) are handled, and only ONE
+    # video per part (1부 / 2부) per day. Anything older that merely isn't in
+    # seen_ids yet (app was off, state lost, ...) is marked seen and skipped.
+    done_parts = prog_state.get("processed_parts", {})
+    if done_parts.get("date") != today:
+        done_parts = {"date": today, "parts": []}
+        prog_state["processed_parts"] = done_parts
+    parts_done: list[str] = done_parts["parts"]
+
+    todo: list[tuple[str, PlaylistVideo]] = []  # newest first
+    for video in videos:
+        if video.id in seen:
+            continue
+        published = video_broadcast_date(video.id)
+        if published is None:
+            continue  # unknown date: don't mark seen, look again next poll
+        if published != now.date():
+            print(f"[scheduler] {program.name}: 오늘 영상이 아니라 건너뜀 - {video.title} ({published})")
+            seen.append(video.id)
+            continue
+        key = part_key(video.title)
+        if key in parts_done or any(k == key for k, _ in todo):
+            print(f"[scheduler] {program.name}: 같은 파트({key}) 영상이 이미 있어 건너뜀 - {video.title}")
+            seen.append(video.id)
+            continue
+        todo.append((key, video))
+    del seen[:-SEEN_IDS_KEEP]
+    _save_state(work_dir, state)
+
+    for key, video in reversed(todo):  # oldest first (1부 before 2부)
         print(f"[scheduler] {program.name}: 새 영상 발견 - {video.title} ({video.id})")
         seen.append(video.id)
         del seen[:-SEEN_IDS_KEEP]
+        parts_done.append(key)
         prog_state["last_video_id"] = video.id
         prog_state["processed_date"] = today
         prog_state["result"] = "processing"
