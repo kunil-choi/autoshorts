@@ -244,3 +244,15 @@ def test_full_auto_mode_runs_through_to_private_upload(real_prepare, monkeypatch
             time.sleep(0.05)
     assert st["status"] == "done", st
     assert uploads == [("[라디올라] 첫줄", "private")]
+
+
+def test_edit_data_gives_the_youtube_video_id_for_the_original_span_player(env):
+    client, _ = env
+    r = client.post("/edit-jobs", data={"program_key": "leedaeho", "url": "https://youtu.be/abcdefghijk",
+                                        "clip_length": "2min"})
+    job_id = r.json()["job_id"]
+    _wait(client, job_id, lambda s: s["status"] != "analyzing")
+    assert client.get(f"/edit-jobs/{job_id}/data").json()["video_id"] == "abcdefghijk"
+    # a link that isn't a YouTube id gives "" (the page then tells the worker to use the confirmation render)
+    other = _start(client)
+    assert client.get(f"/edit-jobs/{other}/data").json()["video_id"] == ""

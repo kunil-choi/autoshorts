@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title>autoshorts - 단계별 작업</title>
   <style>
-    body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 920px; margin: 30px auto; padding: 0 16px 80px; color: #1f2430; }
+    body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 1280px; margin: 30px auto; padding: 0 16px 80px; color: #1f2430; }
     h1 { font-size: 19px; margin: 4px 0; }
     .sub { color: #5b6475; font-size: 13px; margin-bottom: 12px; }
     #banner { margin: 12px 0; padding: 10px 12px; background: #f2f2f2; border-radius: 6px; font-size: 14px; }
@@ -28,28 +28,43 @@
     .dur.over { color: #dc2626; font-weight: 700; }
     .bbody { padding: 12px 14px 16px; display: none; }
     .block.open .bbody { display: block; }
-    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-bottom: 12px; }
+    .cols { display: grid; grid-template-columns: minmax(380px, 470px) 1fr; gap: 18px; align-items: start; margin-top: 8px; }
+    .left { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow-y: auto; padding-right: 2px; }
+    .right .lines { position: relative; overflow-y: auto; max-height: calc(100vh - 150px); border: 1px solid #e5e7eb; border-radius: 8px; }
+    @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } .left { position: static; max-height: none; } .right .lines { max-height: 60vh; } }
+    .tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+    .tabs button { background: #fff; color: #555; border: 1px solid #b9bfcb; padding: 5px 10px; font-size: 13px; }
+    .tabs button.on { background: #6d28d9; color: #fff; border-color: #6d28d9; }
+    .ytbox { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; }
+    .ytbox iframe, .ytbox > div { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; font-size: 13px; }
+    .ctl select { padding: 3px; }
+    .ytmsg { font-size: 12px; color: #b45309; margin: 4px 0; }
+    .finalpane video { display: block; max-height: 440px; max-width: 100%; background: #000; border-radius: 6px; margin: 4px auto; }
+    .finalpane .stale video { opacity: .45; }
+    .finalpane .none { font-size: 13px; color: #777; padding: 24px 8px; text-align: center; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 10px 0 4px; }
+    .fields .wide { grid-column: 1 / -1; }
     .fields label { font-size: 12px; color: #555; display: block; }
-    .fields input, .fields textarea, .fields select { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid #b9bfcb; border-radius: 6px; font: inherit; font-size: 14px; }
+    .fields input, .fields textarea, .fields select { box-sizing: border-box; width: 100%; padding: 5px 7px; border: 1px solid #b9bfcb; border-radius: 6px; font: inherit; font-size: 13px; }
     .fields textarea { resize: vertical; }
     .titlerow { display: flex; align-items: center; gap: 6px; }
     .titlerow .tag { white-space: nowrap; font-size: 13px; color: #6d28d9; font-weight: 700; }
-    .lines-hint { font-size: 12px; color: #666; margin: 6px 0; }
-    .line { display: flex; gap: 8px; align-items: center; padding: 3px 4px; border-bottom: 1px dashed #eee; }
-    .line .t { font-size: 11px; color: #888; width: 46px; flex: none; }
+    .lines-hint { font-size: 12px; color: #666; margin: 0 0 6px; }
+    .line { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-bottom: 1px dashed #eee; }
+    .line .t { font-size: 11px; color: #6d28d9; width: 54px; flex: none; cursor: pointer; text-decoration: underline dotted; }
+    .line .t:hover { color: #4c1d95; font-weight: 700; }
     .line .sp { font-size: 11px; width: 34px; flex: none; text-align: center; border-radius: 8px; padding: 1px 0; }
     .line .sp.a { background: #e0f2fe; color: #075985; }
     .line .sp.p { background: #fce7f3; color: #9d174d; }
-    .line input { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; font: inherit; font-size: 14px; background: transparent; }
+    .line input { flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid transparent; border-radius: 4px; font: inherit; font-size: 15px; background: transparent; }
     .line input:hover, .line input:focus { border-color: #b9bfcb; background: #fff; }
     .line.edited input { background: #fffbeb; border-color: #fcd34d; }
     .line.deleted input { text-decoration: line-through; color: #aaa; }
     .line.deleted { background: #fef2f2; }
     .line.ctx { opacity: .5; }
     .line.ctx input { pointer-events: none; }
-    .preview { margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee; }
-    .preview video { display: block; max-height: 460px; max-width: 100%; background: #000; border-radius: 6px; margin: 8px 0; }
-    .preview .stale video { opacity: .45; }
+    .line.playing { background: #ede9fe; box-shadow: inset 4px 0 0 #6d28d9; }
     .msg { font-size: 13px; color: #92400e; margin: 4px 0; }
     .msg.err { color: #b91c1c; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
@@ -152,6 +167,7 @@ function buildPage() {
     </div>`;
   data.blocks.forEach(b => { initEdit(b); main.appendChild(blockEl(b)); renderLines(b.index); refreshDuration(b.index); updateState(b); });
   document.getElementById('render-all').addEventListener('click', renderAll);
+  ensurePlayer(0);
 }
 
 function blockEl(b) {
@@ -169,24 +185,50 @@ function blockEl(b) {
     </div>
     <div class="bbody">
       <div class="sub">${esc(b.summary)}</div>
-      <div class="fields">
-        <div><label>썸네일 문구 (두 줄)</label><textarea id="thumb-${i}" rows="2">${esc(b.thumbnail_text)}</textarea></div>
-        <div>
-          <label>제목 (업로드 제목)</label>
-          <div class="titlerow">${tag}<input id="title-${i}" value="${esc(b.title)}"></div>
-          <label style="margin-top:6px">출연자 정보</label>
-          <input id="guest-${i}" value="${esc(b.guest_label)}" placeholder="이름 직책 / 소속">
+      <div class="cols">
+        <div class="left">
+          <div class="tabs">
+            <button type="button" class="on" data-tab="orig">▶ 원본 구간 (바로 재생)</button>
+            <button type="button" data-tab="final" disabled>🎬 확인 영상</button>
+          </div>
+          <div class="pane" data-pane="orig">
+            <div class="ytbox"><div id="yt-${i}"></div></div>
+            <div class="ctl">
+              <button type="button" class="small" id="play-${i}">▶ 구간 재생</button>
+              <select id="speed-${i}" title="재생 속도"><option value="0.75">0.75배</option><option value="1" selected>1배</option><option value="1.25">1.25배</option></select>
+              <label><input type="checkbox" id="one-${i}"> 누른 줄만 재생</label>
+            </div>
+            <div class="ytmsg" id="ytmsg-${i}"></div>
+          </div>
+          <div class="pane finalpane" data-pane="final" style="display:none" id="final-${i}"></div>
+          <div id="status-${i}"></div>
+          <div id="actions-${i}"></div>
+          <div class="fields">
+            <div class="wide"><label>썸네일 문구 (두 줄)</label><textarea id="thumb-${i}" rows="2">${esc(b.thumbnail_text)}</textarea></div>
+            <div class="wide"><label>제목 (업로드 제목)</label><div class="titlerow">${tag}<input id="title-${i}" value="${esc(b.title)}"></div></div>
+            <div class="wide"><label>출연자 정보</label><input id="guest-${i}" value="${esc(b.guest_label)}" placeholder="이름 직책 / 소속"></div>
+            <div><label>방송(촬영) 날짜</label><input id="date-${i}" value="${esc(b.shoot_date)}" placeholder="11월 4일"></div>
+            <div><label>날짜 종류</label>
+              <select id="kind-${i}"><option value="방송" ${b.date_kind === '방송' ? 'selected' : ''}>방송</option><option value="촬영" ${b.date_kind === '촬영' ? 'selected' : ''}>촬영</option></select></div>
+          </div>
         </div>
-        <div><label>방송(촬영) 날짜</label><input id="date-${i}" value="${esc(b.shoot_date)}" placeholder="11월 4일"></div>
-        <div><label>날짜 종류</label>
-          <select id="kind-${i}"><option value="방송" ${b.date_kind === '방송' ? 'selected' : ''}>방송</option><option value="촬영" ${b.date_kind === '촬영' ? 'selected' : ''}>촬영</option></select></div>
+        <div class="right">
+          <div class="lines-hint">영상을 들으면서 고치세요. 재생 중인 줄이 강조되고 따라 내려갑니다. <b>시간</b>을 누르면 그 줄부터 재생,
+            글자는 눌러서 바로 수정(자막만 바뀜), <b>✕</b>는 줄 삭제(삭제한 줄은 영상에서도 잘리고 재생 때도 건너뜁니다),
+            흐린 줄은 구간 밖이며 <b>+</b>로 포함. <span class="saved" id="saved-${i}"></span></div>
+          <div class="lines" id="lines-${i}"></div>
+        </div>
       </div>
-      <div class="lines-hint">구간 전체 자막 — 글자는 눌러서 바로 고치세요(자막만 바뀜). <b>✕</b>는 그 줄을 삭제하고 영상에서도 잘라냅니다.
-        흐린 줄은 구간 밖이고, <b>+</b>를 누르면 그 줄까지 구간에 포함됩니다. <span class="saved" id="saved-${i}"></span></div>
-      <div id="lines-${i}"></div>
-      <div class="preview" id="preview-${i}"></div>
     </div>`;
-  div.querySelector('.bhead').addEventListener('click', () => { e.open = !e.open; div.classList.toggle('open', e.open); });
+    div.querySelector('.bhead').addEventListener('click', () => {
+    e.open = !e.open; div.classList.toggle('open', e.open);
+    if (e.open) ensurePlayer(i); else pauseAll();
+  });
+  div.querySelectorAll('.tabs button').forEach(btn => btn.addEventListener('click', () => showTab(i, btn.dataset.tab)));
+  div.querySelector(`#play-${i}`).addEventListener('click', () => togglePlay(i));
+  div.querySelector(`#speed-${i}`).addEventListener('change', ev => {
+    const p = pl[i]; if (p && p.player && p.ready) p.player.setPlaybackRate(Number(ev.target.value));
+  });
   ['thumb', 'title', 'guest', 'date', 'kind', 'enabled'].forEach(k => {
     const el = div.querySelector(`#${k}-${i}`);
     el.addEventListener('input', () => scheduleSave(i));
@@ -205,10 +247,13 @@ function renderLines(i) {
     const s = segs[k], inside = k >= e.first && k <= e.last, del = e.deleted.has(k);
     const edited = Object.prototype.hasOwnProperty.call(e.texts, String(k));
     const row = document.createElement('div');
-    row.className = 'line' + (inside ? '' : ' ctx') + (del ? ' deleted' : '') + (edited ? ' edited' : '');
+    row.className = 'line' + (inside ? '' : ' ctx') + (del ? ' deleted' : '') + (edited ? ' edited' : '')
+      + (pl[i] && pl[i].cur === k ? ' playing' : '');
+    row.dataset.k = k;
     const sp = s.speaker === '앵커' ? '<span class="sp a">앵커</span>' : s.speaker === '패널' ? '<span class="sp p">패널</span>' : '<span class="sp"></span>';
-    row.innerHTML = `<span class="t">${fmtT(s.start)}</span>${sp}<input type="text" ${(del || locked || !inside) ? 'readonly' : ''}><button type="button" class="sec small" ${locked ? 'disabled' : ''}></button>`;
+    row.innerHTML = `<span class="t" title="여기부터 재생">▶${fmtT(s.start)}</span>${sp}<input type="text" ${(del || locked || !inside) ? 'readonly' : ''}><button type="button" class="sec small" ${locked ? 'disabled' : ''}></button>`;
     const input = row.querySelector('input'), btn = row.querySelector('button');
+    row.querySelector('.t').addEventListener('click', () => playFrom(i, k));
     input.value = edited ? e.texts[String(k)] : s.text;
     input.addEventListener('input', () => {
       const v = input.value;
@@ -297,38 +342,217 @@ function updateState(b) {
   badge.className = 'badge ' + label[0]; badge.textContent = label[1];
   refreshDuration(i);
 
-  const pv = document.getElementById(`preview-${i}`);
   const busy = st === 'rendering' || up.status === 'uploading';
   const uploaded = up.status === 'done';
-  let html = '';
-  if (b.render.message && st === 'rendering') html += `<div class="msg">⏳ ${esc(b.render.message)}</div>`;
-  if (st === 'error') html += `<div class="msg err">확인 영상 오류: ${esc(b.render.message)}</div>`;
-  if ((st === 'ready' || st === 'stale' || uploaded) && b.render_version > 0)
-    html += `<div class="${st === 'stale' ? 'stale' : ''}"><video controls preload="metadata" src="/edit-jobs/${jobId}/blocks/${i}/final.mp4?v=${b.render_version}"></video></div>`;
-  if (st === 'stale') html += `<div class="msg">⚠️ 이 영상은 수정 전 내용입니다. "확인 영상 다시 만들기"를 눌러 반영하세요.</div>`;
-  if (up.status === 'error') html += `<div class="msg err">업로드 오류: ${esc(up.message)}</div>`;
+  const hasVideo = (st === 'ready' || st === 'stale' || uploaded) && b.render_version > 0;
+
+  let status = '';
+  if (b.render.message && st === 'rendering') status += `<div class="msg">⏳ ${esc(b.render.message)}</div>`;
+  if (st === 'error') status += `<div class="msg err">확인 영상 오류: ${esc(b.render.message)}</div>`;
+  if (st === 'stale') status += `<div class="msg">⚠️ 확인 영상이 수정 전 내용입니다. "확인 영상 다시 만들기"를 눌러 반영하세요.</div>`;
+  if (up.status === 'error') status += `<div class="msg err">업로드 오류: ${esc(up.message)}</div>`;
+
+  let finalHtml = hasVideo
+    ? `<div class="${st === 'stale' ? 'stale' : ''}"><video controls preload="metadata" src="/edit-jobs/${jobId}/blocks/${i}/final.mp4?v=${b.render_version}"></video></div>`
+    : '<div class="none">아직 확인 영상이 없습니다.<br>자막을 다 고친 뒤 "확인 영상 만들기"를 누르면 여기에 나옵니다.</div>';
+
+  let actions;
   if (uploaded) {
-    html += `<div class="actions"><span class="badge done">✅ 비공개로 업로드됨</span>
+    actions = `<div class="actions"><span class="badge done">✅ 비공개로 업로드됨</span>
       <a href="${esc(b.studio_url)}" target="_blank" rel="noopener"><button type="button" class="green">유튜브 스튜디오에서 열기 (공개 전환)</button></a></div>`;
     const w = studioWins[i];
     if (w && !w.closed && b.studio_url) { w.location = b.studio_url; }
     delete studioWins[i];
   } else {
-    html += `<div class="actions">
-      <button type="button" data-act="render" ${busy ? 'disabled' : ''}>${st === 'ready' ? '🎬 확인 영상 다시 만들기' : st === 'stale' ? '🎬 확인 영상 다시 만들기' : '🎬 확인 영상 만들기'}</button>
+    actions = `<div class="actions">
+      <button type="button" data-act="render" ${busy ? 'disabled' : ''}>${hasVideo ? '🎬 확인 영상 다시 만들기' : '🎬 확인 영상 만들기'}</button>
       <button type="button" class="green" data-act="upload" ${(st !== 'ready' || busy) ? 'disabled' : ''} title="${st === 'ready' ? '' : '최신 내용의 확인 영상을 먼저 만들어야 합니다'}">📤 비공개로 업로드</button>
     </div>`;
   }
-  // replacing the preview would restart a video the worker is watching: only touch it when the state really changed
+
+  // replacing the panes would restart a video the worker is watching: only touch them when the state really changed
+  const box = document.getElementById(`block-${i}`);
   const sig = `${st}|${up.status}|${b.render_version}|${b.render.message}|${up.message}`;
-  if (pv.dataset.sig === sig) return;
-  pv.dataset.sig = sig;
-  pv.innerHTML = html;
-  const r = pv.querySelector('[data-act=render]'), u = pv.querySelector('[data-act=upload]');
+  if (box.dataset.sig === sig) return;
+  const prevVersion = box.dataset.ver === undefined ? null : Number(box.dataset.ver);
+  box.dataset.sig = sig; box.dataset.ver = String(b.render_version);
+  document.getElementById(`status-${i}`).innerHTML = status;
+  document.getElementById(`final-${i}`).innerHTML = finalHtml;
+  const act = document.getElementById(`actions-${i}`);
+  act.innerHTML = actions;
+  const r = act.querySelector('[data-act=render]'), u = act.querySelector('[data-act=upload]');
   if (r) r.addEventListener('click', () => renderBlock(i));
   if (u) u.addEventListener('click', () => uploadBlock(i));
+  box.querySelector('[data-tab=final]').disabled = !hasVideo;
+  // a freshly finished render is what the worker is waiting for: show it
+  if (st === 'ready' && prevVersion !== null && prevVersion !== b.render_version) showTab(i, 'final');
+  if (!hasVideo && edit[i].tab === 'final') showTab(i, 'orig');
   if (up.status === 'uploading' || uploaded) renderLines(i);
 }
+
+// ------------------------------------------------------- 원본 구간 재생
+// YouTube's own embedded player plays the ORIGINAL video's chosen span right away (no render, no tokens).
+// Lines the worker deleted are skipped, matching what the cut will keep.
+const pl = {};                 // block index -> { player, ready, failed, mode, stopAt, cur }
+let activeBlock = null;
+const ytQueue = [];
+window.onYouTubeIframeAPIReady = () => ytQueue.splice(0).forEach(fn => fn());
+
+function whenYT(fn) {
+  if (window.YT && YT.Player) { fn(); return; }
+  ytQueue.push(fn);
+  if (!document.getElementById('yt-api')) {
+    const sc = document.createElement('script');
+    sc.id = 'yt-api'; sc.src = 'https://www.youtube.com/iframe_api';
+    sc.onerror = () => data.blocks.forEach(b => ytFail(b.index, '유튜브 플레이어를 불러오지 못했습니다(인터넷 연결 확인). 확인 영상을 만들어 보며 고쳐 주세요.'));
+    document.head.appendChild(sc);
+  }
+}
+function ytFail(i, msg) {
+  pl[i] = Object.assign(pl[i] || {}, { failed: true });
+  const el = document.getElementById(`ytmsg-${i}`); if (el) el.textContent = msg;
+}
+
+function ensurePlayer(i) {
+  if (pl[i]) return;
+  pl[i] = { player: null, ready: false, failed: false, mode: 'range', stopAt: null, cur: -1 };
+  if (!data.video_id) { ytFail(i, '유튜브 링크가 아니라 원본 구간 재생을 쓸 수 없습니다. 확인 영상을 만들어 보며 고쳐 주세요.'); return; }
+  const startSec = Math.floor(data.segments[edit[i].first].start);
+  whenYT(() => {
+    pl[i].player = new YT.Player(`yt-${i}`, {
+      videoId: data.video_id, width: '100%', height: '100%',
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1, start: startSec, origin: location.origin },
+      events: {
+        onReady: () => { pl[i].ready = true; pl[i].player.setPlaybackRate(Number(document.getElementById(`speed-${i}`).value)); },
+        onStateChange: ev => onPlayerState(i, ev.data),
+        onError: ev => ytFail(i, [101, 150, 153].includes(ev.data)
+          ? '이 영상은 퍼가기가 막혀 있어 원본 구간 재생을 쓸 수 없습니다. 확인 영상을 만들어 보며 고쳐 주세요.'
+          : `플레이어 오류(${ev.data}). 확인 영상을 만들어 보며 고쳐 주세요.`),
+      },
+    });
+  });
+}
+function onPlayerState(i, state) {
+  const btn = document.getElementById(`play-${i}`);
+  if (state === 1) {            // playing
+    activeBlock = i;
+    Object.keys(pl).forEach(k => { if (Number(k) !== i && pl[k].ready) pl[k].player.pauseVideo(); });
+    document.querySelectorAll('.finalpane video').forEach(v => v.pause());
+    btn.textContent = '⏸ 일시정지';
+  } else if (state === 2 || state === 0) btn.textContent = '▶ 구간 재생';
+}
+function pauseAll() {
+  Object.keys(pl).forEach(k => { if (pl[k].ready) pl[k].player.pauseVideo(); });
+  document.querySelectorAll('.finalpane video').forEach(v => v.pause());
+}
+function showTab(i, name) {
+  const box = document.getElementById(`block-${i}`);
+  edit[i].tab = name;
+  box.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  box.querySelectorAll('.pane').forEach(p => { p.style.display = p.dataset.pane === name ? '' : 'none'; });
+  if (name === 'final') { if (pl[i] && pl[i].ready) pl[i].player.pauseVideo(); }
+  else box.querySelectorAll('.finalpane video').forEach(v => v.pause());
+}
+
+// the footage ranges the cut keeps, in seconds - same rule as the server (editjob.block_ranges), minus pause snapping
+function runsOf(i) {
+  const e = edit[i], segs = data.segments, runs = [];
+  let run = null;
+  for (let k = e.first; k <= e.last; k++) {
+    if (e.deleted.has(k)) { run = null; continue; }
+    if (run && k === run.b + 1) run.b = k; else { run = { a: k, b: k }; runs.push(run); }
+  }
+  return runs.map(r => {
+    let start = segs[r.a].start, end = segs[r.b].end;
+    if (r.a - 1 >= e.first && e.deleted.has(r.a - 1)) {
+      let j = r.a - 1, lo = segs[j].end;
+      while (j - 1 >= e.first && e.deleted.has(j - 1)) { j--; lo = Math.max(lo, segs[j].end); }
+      start = Math.max(start, lo);
+    }
+    if (r.b + 1 <= e.last && e.deleted.has(r.b + 1)) {
+      let j = r.b + 1, hi = segs[j].start;
+      while (j + 1 <= e.last && e.deleted.has(j + 1)) { j++; hi = Math.min(hi, segs[j].start); }
+      end = Math.min(end, hi);
+    }
+    return [start, end];
+  }).filter(([s0, e0]) => e0 - s0 >= 0.3);
+}
+
+function playFrom(i, k) {
+  const e = edit[i], seg = data.segments[k];
+  showTab(i, 'orig');
+  ensurePlayer(i);
+  const p = pl[i];
+  if (p.failed) return;
+  const go = () => {
+    const inside = k >= e.first && k <= e.last && !e.deleted.has(k);
+    const one = document.getElementById(`one-${i}`).checked;
+    // a line outside the span, or a deleted one, is only played by itself (to hear what was cut / what could be added)
+    p.mode = (inside && !one) ? 'range' : 'line';
+    p.stopAt = p.mode === 'line' ? seg.end : null;
+    p.player.seekTo(seg.start, true);
+    p.player.playVideo();
+  };
+  if (p.ready) go(); else { const t0 = setInterval(() => { if (p.ready) { clearInterval(t0); go(); } else if (p.failed) clearInterval(t0); }, 150); }
+}
+function togglePlay(i) {
+  showTab(i, 'orig'); ensurePlayer(i);
+  const p = pl[i];
+  if (p.failed || !p.ready) return;
+  if (p.player.getPlayerState() === 1) { p.player.pauseVideo(); return; }
+  const runs = runsOf(i), t = p.player.getCurrentTime();
+  p.mode = 'range'; p.stopAt = null;
+  if (!runs.length) return;
+  const inRun = runs.some(([a, b]) => t >= a - 0.1 && t < b);
+  if (!inRun) p.player.seekTo(runs[0][0], true);
+  p.player.playVideo();
+}
+
+function lineAt(i, t) {
+  const e = edit[i], segs = data.segments;
+  let best = -1;
+  for (let k = e.first; k <= e.last; k++) {
+    if (e.deleted.has(k)) continue;
+    if (segs[k].start <= t + 0.05) best = k; else break;
+  }
+  return best;
+}
+function setCur(i, k) {
+  const p = pl[i];
+  if (p.cur === k) return;
+  p.cur = k;
+  const box = document.getElementById(`lines-${i}`);
+  box.querySelectorAll('.line.playing').forEach(r => r.classList.remove('playing'));
+  const row = box.querySelector(`.line[data-k="${k}"]`);
+  if (!row) return;
+  row.classList.add('playing');
+  // keep the playing line in view inside the scroll box (without scrolling the whole page)
+  const top = row.offsetTop, bottom = top + row.offsetHeight;
+  if (top < box.scrollTop + 20 || bottom > box.scrollTop + box.clientHeight - 20)
+    box.scrollTo({ top: Math.max(0, top - box.clientHeight / 3), behavior: 'smooth' });
+}
+setInterval(() => {
+  if (activeBlock === null) return;
+  const i = activeBlock, p = pl[i];
+  if (!p || !p.ready || p.player.getPlayerState() !== 1) return;
+  const t = p.player.getCurrentTime();
+  if (p.mode === 'line') {
+    if (p.stopAt !== null && t >= p.stopAt) { p.player.pauseVideo(); return; }
+    const segs = data.segments;
+    for (let k = Math.max(0, edit[i].first - data.context_lines); k <= Math.min(segs.length - 1, edit[i].last + data.context_lines); k++)
+      if (segs[k].start <= t + 0.05 && t < segs[k].end) setCur(i, k);
+    return;
+  }
+  const runs = runsOf(i);
+  if (!runs.length) { p.player.pauseVideo(); return; }
+  if (!runs.some(([a, b]) => t >= a - 0.1 && t < b)) {            // in a cut-out gap (or past the end)
+    const next = runs.find(([a]) => a > t);
+    if (next) p.player.seekTo(next[0], true); else p.player.pauseVideo();
+    return;
+  }
+  const k = lineAt(i, t);
+  if (k >= 0) setCur(i, k);
+}, 150);
 
 // ------------------------------------------------------------- polling
 let polling = false;
