@@ -98,11 +98,16 @@ def excerpt_for_range(segments: list[Segment], start_sec: float, end_sec: float)
 
 
 def format_for_prompt(segments: list[Segment]) -> str:
-    """Render segments as "[mm:ss-mm:ss] text" lines for the analysis prompt."""
+    """Render segments as "[mm:ss-mm:ss] text" lines for the analysis prompt.
+    Segments whose speaker role is known ("앵커"/"패널", see
+    analyze.label_speakers) get it as a tag: "[mm:ss-mm:ss] [패널] text"."""
 
     def hms(sec: float) -> str:
         m, s = divmod(int(sec), 60)
         h, m = divmod(m, 60)
         return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
-    return "\n".join(f"[{hms(s.start_sec)}-{hms(s.end_sec)}] {s.text}" for s in segments)
+    return "\n".join(
+        f"[{hms(s.start_sec)}-{hms(s.end_sec)}] " + (f"[{s.speaker}] " if s.speaker else "") + s.text
+        for s in segments
+    )

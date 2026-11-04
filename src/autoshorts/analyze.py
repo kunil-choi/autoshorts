@@ -56,17 +56,20 @@ SYSTEM_PROMPT_TEMPLATE = """\
 # format; a source with a different visual format (e.g. no fixed
 # host/guest) may need this rule adjusted or dropped per workspace.
 _GUEST_CENTERED_RULE = """\
-- 대본에서 화자가 바뀌는 지점은 ">>"로 표시되어 있다. 누가 진행자(짧게 질문하거나
-  맞장구치는 쪽)이고 누가 출연자(실제로 분석·설명·의견을 길게 이야기하는 쪽)인지 대본
-  내용으로 판단해라. 렌더링 화면은 클립 내내 출연자 얼굴로 고정되고 진행자가 말할 때도
+- 대본의 각 줄 앞에는 화자 역할이 [앵커](진행자: 짧게 질문하거나 맞장구치는 쪽) 또는
+  [패널](출연자: 실제로 분석·설명·의견을 길게 이야기하는 쪽)로 표시되어 있다. 표시가 없는
+  줄은 내용으로 판단해라. 렌더링 화면은 클립 내내 출연자 얼굴로 고정되고 진행자가 말할 때도
   화면은 바뀌지 않은 채 목소리만 나오므로, 이를 고려해서 아래 세 가지 패턴 중 하나로
   구간을 골라라 (섞어서 판단해도 된다):
-  (1) 출연자 혼자 끊김 없이 말하는 구간(">>"가 전혀 없음). 길고 완결된 발언이 있다면
+  (1) 출연자 혼자 끊김 없이 말하는 구간([앵커] 줄이 전혀 없음). 길고 완결된 발언이 있다면
       이 패턴을 우선한다.
   (2) 출연자의 발언만으로는 무슨 내용인지 이해가 안 되는 경우, 그 발언을 이끌어낸 진행자의
       바로 앞 질문부터 포함한다 — 구간의 시작을 그 진행자 질문이 시작되는 지점으로 잡는다.
   (3) 출연자가 길게 이야기하는 도중에 진행자가 짧게 맞장구를 치거나 중간 질문을 던지는
       정도라면 그 부분을 잘라내지 말고 그대로 포함한다.
+  패널의 발언 도중에 시작하거나 끝내지 마라: 구간은 패널이 한 번에 이어서 말하는 발언
+  (연속된 [패널] 줄)의 처음에서 시작해 그 발언이 끝나는 줄에서 끝나야 하고, [앵커] 줄로
+  끝나서는 안 된다. 그 발언이 너무 길어 시간 안에 못 담으면 다른 구간을 골라라.
   다만 어느 패턴이든 구간 전체 발화 시간의 대부분은 출연자여야 한다 — 진행자가 여러
   문장에 걸쳐 길게 말하는 인터뷰 도입부나, 진행자 발언이 구간의 절반 이상을 차지하는
   구간은 고르지 마라.\
@@ -425,7 +428,9 @@ def _refine_one(
     lo = max(0, first - _REFINE_CONTEXT_LINES)
     hi = min(len(segments) - 1, last + _REFINE_CONTEXT_LINES)
     lines = "\n".join(
-        f"[{i}] ({_sec_to_hms(segments[i].start_sec)}-{_sec_to_hms(segments[i].end_sec)}) {segments[i].text}"
+        f"[{i}] ({_sec_to_hms(segments[i].start_sec)}-{_sec_to_hms(segments[i].end_sec)}) "
+        + (f"[{segments[i].speaker}] " if segments[i].speaker else "")
+        + segments[i].text
         for i in range(lo, hi + 1)
     )
     message = client.messages.create(
@@ -438,6 +443,11 @@ def _refine_one(
             "접속어로만 시작하거나, 앞 내용을 받는 말)이면 앞으로 더 가서 그 문장의 시작 줄을 잡아라.\n"
             "- 끝 줄은 화자가 문장과 생각을 끝맺는 줄이어야 한다. 말이 이어지는 중이면 뒤로 더 가서 "
             "끝맺는 줄까지 포함해라. 다음 화제를 꺼내는 줄은 포함하지 마라.\n"
+            "- 줄 앞의 [앵커]는 진행자, [패널]은 주된 내용을 말하는 출연자다. 끝 줄은 패널이 그 발언을 "
+            "다 마친 줄이어야 한다: 끝 줄 다음 줄도 [패널]이라면 발언이 계속되는 중이니 그 발언이 끝날 "
+            "때까지 뒤로 늘려라. [앵커] 줄(질문·마무리 멘트)로 끝내지 마라. 시작 줄도 패널 발언의 "
+            "중간이 아니라 그 발언의 첫 줄이어야 한다(앞 줄도 [패널]이면 발언의 첫 줄까지 앞으로 가라). "
+            "단, 패널의 발언을 이끌어낸 [앵커]의 바로 앞 질문 줄에서 시작하는 것은 괜찮다.\n"
             "- 구간 전체의 핵심 내용은 유지하고, 주제와 무관한 앞뒤 줄은 넣지 마라.\n"
             f"- 전체 길이는 {clip_length.max_sec}초를 넘으면 안 된다. 줄 번호는 {lo}~{hi} 안에서만 고른다."
         ),
@@ -453,7 +463,75 @@ def _refine_one(
     duration = new_end - new_start
     if duration > clip_length.max_sec or duration < _REFINE_MIN_SEC:
         return c
+    new_first, new_last = _align_to_panel_turns(new_first, new_last, segments, clip_length)
+    new_start, new_end = segments[new_first].start_sec, segments[new_last].end_sec
     return replace(c, ranges=[ClipRange(start_sec=new_start, end_sec=new_end)])
+
+
+_SENTENCE_END_CHARS = tuple(".?!…다요죠까네")
+
+
+def _looks_like_sentence_end(text: str) -> bool:
+    t = text.strip().rstrip("\"'”’)」")
+    return bool(t) and t.endswith(_SENTENCE_END_CHARS)
+
+
+def _align_to_panel_turns(
+    first: int, last: int, segments: list[Segment], clip_length: ClipLengthPreset
+) -> tuple[int, int]:
+    """Deterministic safety net on top of Claude's boundary pick, using the
+    앵커/패널 labels (analyze.label_speakers): a clip should not start or end
+    in the middle of a panelist's speech.
+
+    - end: ends on a 앵커 line -> trimmed back to the panelist's last line;
+      ends while the panelist keeps talking -> extended to the end of that
+      turn if it still fits max_sec, else cut at the last sentence ending
+      that fits.
+    - start: begins mid-turn of the panelist -> moved back to the turn's first
+      line if it still fits max_sec.
+    No labels, or any adjustment that would break the length limits, keeps
+    the input as is.
+    """
+    if not any(s.speaker for s in segments):
+        return first, last
+    n = len(segments)
+    max_sec = clip_length.max_sec
+
+    def span(a: int, b: int) -> float:
+        return segments[b].end_sec - segments[a].start_sec
+
+    # --- end ---
+    new_last = last
+    if segments[new_last].speaker == "앵커":
+        j = new_last
+        while j > first and segments[j].speaker == "앵커":
+            j -= 1
+        if segments[j].speaker == "패널" and span(first, j) >= _REFINE_MIN_SEC:
+            new_last = j
+    if segments[new_last].speaker == "패널" and new_last + 1 < n and segments[new_last + 1].speaker == "패널":
+        turn_end = new_last
+        while turn_end + 1 < n and segments[turn_end + 1].speaker == "패널":
+            turn_end += 1
+        if span(first, turn_end) <= max_sec:
+            new_last = turn_end
+        else:
+            fit = [
+                k for k in range(new_last, turn_end + 1)
+                if span(first, k) <= max_sec and _looks_like_sentence_end(segments[k].text)
+            ]
+            if fit:
+                new_last = fit[-1]
+
+    # --- start ---
+    new_first = first
+    if segments[first].speaker == "패널" and first > 0 and segments[first - 1].speaker == "패널":
+        turn_start = first
+        while turn_start > 0 and segments[turn_start - 1].speaker == "패널":
+            turn_start -= 1
+        if span(turn_start, new_last) <= max_sec:
+            new_first = turn_start
+
+    return new_first, new_last
 
 
 def candidate_to_dict(c: Candidate) -> dict:
