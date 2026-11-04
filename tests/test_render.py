@@ -7,6 +7,7 @@ from autoshorts.render import (
     _clip_overlapping_cues,
     _face_crop_offset,
     _title_lines,
+    _caption_chunks,
     _wrap_caption,
 )
 from autoshorts.transcript import Segment
@@ -175,3 +176,30 @@ def test_face_crop_offset_never_shows_the_seam_for_right_side_speaker():
     faces = [(1100.0, 300.0, 150.0, 150.0)]
     x_off, _ = _face_crop_offset(faces, scale, 1080, 906, scaled_w, scaled_h, 1920)
     assert x_off >= scaled_w / 2 + SEAM_MARGIN_PX - 1
+
+
+def test_wrap_caption_never_exceeds_hard_line_limit():
+    from autoshorts.render import CAPTION_HARD_MAX_CHARS_PER_LINE as LIMIT
+    # the real-world overflow case: halves of 11 + 9 chars are fine, but a
+    # sentence whose midpoint split leaves a 20-char line must be re-wrapped
+    text = "휴먼로이드를 만들겠다라고 얘기를 하고 있고요. 다만 상반기에 실제로 출하가"
+    for line in _wrap_caption(text).split("\n"):
+        assert len(line) <= LIMIT
+    # no spaces at all: hard split instead of one giant line
+    for line in _wrap_caption("가" * 40).split("\n"):
+        assert len(line) <= LIMIT
+
+
+def test_caption_chunks_splits_long_cue_into_two_line_pieces():
+    text = "휴먼로이드를 만들겠다라고 얘기를 하고 있고요. 다만 상반기에 실제로 출하가 시작될 예정이라고 합니다"
+    chunks = _caption_chunks(10.0, 20.0, text)
+    assert len(chunks) >= 2
+    assert chunks[0][0] == 10.0 and chunks[-1][1] == 20.0
+    for (_, e1, _), (s2, _, _) in zip(chunks, chunks[1:]):
+        assert e1 == s2  # contiguous, no gap/overlap
+    for _, _, t in chunks:
+        assert len(t.split("\n")) <= 2
+
+
+def test_caption_chunks_leaves_short_cue_alone():
+    assert _caption_chunks(1.0, 2.0, "짧은 자막") == [(1.0, 2.0, "짧은 자막")]

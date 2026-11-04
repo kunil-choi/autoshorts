@@ -111,6 +111,11 @@ CAPTION_BAND_TOP = BOTTOM_IMAGE_BAND_TOP - CAPTION_BAND_GAP_ABOVE_BOTTOM_IMAGE -
 CAPTION_TEXT_PADDING_TOP = 25
 CAPTION_LINE_HEIGHT = round(CAPTION_FONTSIZE * 1.25)
 CAPTION_MAX_CHARS_PER_LINE = 14
+# hard ceiling for one caption line. Hangul glyphs are ~CAPTION_FONTSIZE px
+# wide, so 16 of them (~1000px) still fit inside the CANVAS_W canvas; a longer
+# line would run off the screen edges.
+CAPTION_HARD_MAX_CHARS_PER_LINE = 16
+CAPTION_MAX_LINES = 2
 CAPTION_BOX_OPACITY = 0.75
 
 # optional name plate ("이름 직책 / 소속") identifying the on-screen guest,
@@ -203,8 +208,35 @@ def _title_lines(thumbnail_text: str) -> tuple[str, str | None]:
     return line1, (line2 or None)
 
 
+def _greedy_lines(text: str, max_chars: int) -> list[str]:
+    """Word-wrap on spaces so no line exceeds max_chars; a single word longer
+    than max_chars is split mid-word rather than left to overflow."""
+    lines: list[str] = []
+    cur = ""
+    for word in text.split():
+        while len(word) > max_chars:
+            if cur:
+                lines.append(cur)
+                cur = ""
+            lines.append(word[:max_chars])
+            word = word[max_chars:]
+        if not cur:
+            cur = word
+        elif len(cur) + 1 + len(word) <= max_chars:
+            cur += " " + word
+        else:
+            lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 def _wrap_caption(text: str, max_chars: int = CAPTION_MAX_CHARS_PER_LINE) -> str:
-    """Wrap caption text onto at most 2 lines, breaking near the midpoint on a space."""
+    """Wrap caption text, preferring 2 balanced lines broken near the midpoint
+    on a space. No line ever exceeds CAPTION_HARD_MAX_CHARS_PER_LINE; if the
+    text can't fit in 2 such lines the result has more than 2 lines (callers
+    that draw it should split it first with _caption_chunks)."""
     text = text.strip()
     if len(text) <= max_chars:
         return text
@@ -217,9 +249,30 @@ def _wrap_caption(text: str, max_chars: int = CAPTION_MAX_CHARS_PER_LINE) -> str
                 break
         if break_at is not None:
             break
-    if break_at is None:
-        return text
-    return text[:break_at] + "\n" + text[break_at + 1:]
+    if break_at is not None:
+        first, second = text[:break_at], text[break_at + 1:]
+        if max(len(first), len(second)) <= CAPTION_HARD_MAX_CHARS_PER_LINE:
+            return first + "\n" + second
+    return "\n".join(_greedy_lines(text, CAPTION_HARD_MAX_CHARS_PER_LINE))
+
+
+def _caption_chunks(start: float, end: float, text: str) -> list[tuple[float, float, str]]:
+    """Split one cue into consecutive cues of at most CAPTION_MAX_LINES lines
+    each (the caption band only fits that many), sharing the cue's time span
+    in proportion to text length. Short cues come back unchanged."""
+    lines = _wrap_caption(text).split("\n")
+    if len(lines) <= CAPTION_MAX_LINES:
+        return [(start, end, "\n".join(lines))]
+    groups = [lines[i:i + CAPTION_MAX_LINES] for i in range(0, len(lines), CAPTION_MAX_LINES)]
+    weights = [max(1, sum(len(l) for l in g)) for g in groups]
+    total = sum(weights)
+    chunks: list[tuple[float, float, str]] = []
+    t = start
+    for g, w in zip(groups, weights):
+        t_end = end if g is groups[-1] else t + (end - start) * w / total
+        chunks.append((t, t_end, "\n".join(g)))
+        t = t_end
+    return chunks
 
 
 _SPEAKER_MARKER_RE = re.compile(r"\s*>>\s*")
@@ -748,6 +801,9 @@ def build_filter_complex(
         )
         last = "guestlabel"
 
+    # over-long cues become several consecutive on-screen captions so no text
+    # runs past the screen edge or the caption band
+    captions = [c for cue in captions for c in _caption_chunks(*cue)]
     for i, (cue_start, cue_end, text) in enumerate(captions):
         # between(t,start,end) is inclusive on *both* ends, so two cues that
         # share an exact touching boundary (cue1.end == cue2.start, the
@@ -757,8 +813,7 @@ def build_filter_complex(
         # gte(t,start)*lt(t,end) makes the window half-open ([start, end))
         # so consecutive cues never both draw on the same frame.
         enable = f"enable='gte(t,{cue_start})*lt(t,{cue_end})'"
-        wrapped = _wrap_caption(text)
-        cap_lines = wrapped.split("\n", 1)
+        cap_lines = text.split("\n", 1)
         cap_line1 = cap_lines[0]
         cap_line2 = cap_lines[1] if len(cap_lines) > 1 else None
 
