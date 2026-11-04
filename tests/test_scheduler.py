@@ -1,10 +1,19 @@
 import asyncio
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from autoshorts import scheduler
 from autoshorts.config import ProgramConfig
 
 KST = scheduler.KST
+
+
+@pytest.fixture(autouse=True)
+def _videos_published_today(monkeypatch):
+    """Unless a test overrides it, every video counts as published on the
+    (fake) current day used by the tests: 2026-10-26."""
+    monkeypatch.setattr(scheduler, "video_broadcast_date", lambda vid: date(2026, 10, 26))
 
 
 def _program(**overrides):
@@ -251,3 +260,70 @@ def test_poll_once_keeps_done_result_when_window_closes(tmp_path):
     asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
     assert state[program.key]["result"] == "done"
     assert state[program.key]["handled_date"] == today
+
+
+def test_poll_once_skips_videos_not_published_today(tmp_path, monkeypatch):
+    program = _program()
+    today_v = scheduler.PlaylistVideo(id="t", url="https://x/t", title="오늘 1부")
+    old_vs = [scheduler.PlaylistVideo(id=f"o{i}", url=f"https://x/o{i}", title=f"옛날 {i}") for i in range(4)]
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [today_v] + old_vs)
+    monkeypatch.setattr(
+        scheduler, "video_broadcast_date",
+        lambda vid: date(2026, 10, 26) if vid == "t" else date(2026, 10, 23),
+    )
+    handled = []
+
+    async def fake_on_new_video(prog, video):
+        handled.append(video.id)
+
+    now = scheduler.trigger_datetime(program, date(2026, 10, 26))
+    state = {program.key: {"last_video_id": "x", "seen_ids": ["x"]}}
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
+    assert handled == ["t"]
+    # the old ones are remembered so they aren't re-checked every poll
+    assert {"o0", "o1", "o2", "o3"} <= set(state[program.key]["seen_ids"])
+
+
+def test_poll_once_one_video_per_part_per_day(tmp_path, monkeypatch):
+    program = _program()
+    p1_new = scheduler.PlaylistVideo(id="p1b", url="https://x/p1b", title="[이대호] 1부 재업로드")
+    p2 = scheduler.PlaylistVideo(id="p2", url="https://x/p2", title="2부")
+    p1 = scheduler.PlaylistVideo(id="p1", url="https://x/p1", title="1부")
+    playlist = [p1_new, p2, p1]
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: list(playlist))
+    handled = []
+
+    async def fake_on_new_video(prog, video):
+        handled.append(video.id)
+
+    now = scheduler.trigger_datetime(program, date(2026, 10, 26))
+    state = {program.key: {"last_video_id": "x", "seen_ids": ["x"]}}
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
+    assert handled == ["p2", "p1b"]  # one 1부 (the newest) + one 2부, no duplicates
+
+    # a later duplicate of an already-handled part is ignored
+    playlist.insert(0, scheduler.PlaylistVideo(id="p2b", url="https://x/p2b", title="2부 또"))
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now + timedelta(minutes=10), fake_on_new_video))
+    assert handled == ["p2", "p1b"]
+
+
+def test_poll_once_retries_when_date_unknown(tmp_path, monkeypatch):
+    program = _program()
+    v = scheduler.PlaylistVideo(id="v", url="https://x/v", title="1부")
+    monkeypatch.setattr(scheduler, "latest_playlist_videos", lambda url: [v])
+    monkeypatch.setattr(scheduler, "video_broadcast_date", lambda vid: None)
+    handled = []
+
+    async def fake_on_new_video(prog, video):
+        handled.append(video.id)
+
+    now = scheduler.trigger_datetime(program, date(2026, 10, 26))
+    state = {program.key: {"last_video_id": "x", "seen_ids": ["x"]}}
+    asyncio.run(scheduler._poll_once(tmp_path, state, program, now, fake_on_new_video))
+    assert handled == [] and "v" not in state[program.key]["seen_ids"]
+
+
+def test_part_key():
+    assert scheduler.part_key("성공예감 이대호입니다 1부") == "1"
+    assert scheduler.part_key("이대호 2 부") == "2"
+    assert scheduler.part_key("그냥 제목") == "single"
