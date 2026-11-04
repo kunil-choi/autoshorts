@@ -1,9 +1,8 @@
 """Watches a small, fixed set of radio programs' YouTube playlists
-(config.PROGRAMS) and kicks off the automatic shorts pipeline on its own
-once each weekday's VOD(s) show up - no worker needs to paste a link in for
-these two programs. This is additive to, and independent of, the existing
-manual paths (review-and-confirm, and the one-off "완전 자동 모드" button),
-which still work exactly as before for any other video.
+(config.PROGRAMS) and calls on_new_video once each weekday's VOD(s) show up
+- no worker needs to paste a link in for these two programs. The app's
+callback only notes the video (webui/server.py: it shows as a "새 영상"
+notice on the 자동 생성 page); nothing is analyzed until a worker starts it.
 
 Each program broadcasts on a fixed schedule (weekdays only) and its VOD is
 expected on the program's playlist shortly after the broadcast ends, but

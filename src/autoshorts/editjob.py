@@ -218,6 +218,53 @@ def cleanup_old(work_dir: Path, now: datetime | None = None, days: int = KEEP_DA
     return removed
 
 
+def cleanup_old_dirs(root: Path, days: int = KEEP_DAYS_AFTER_FINISH, now: float | None = None) -> list[str]:
+    """Delete sub-folders of `root` not modified for `days` (e.g. the old
+    one-click jobs' work folders: everything in them is already uploaded)."""
+    import time
+    if not root.is_dir():
+        return []
+    cutoff = (now if now is not None else time.time()) - days * 86400
+    removed = []
+    for d in list(root.iterdir()):
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+                removed.append(d.name)
+        except OSError:
+            continue
+    return removed
+
+
+def recover_interrupted(work_dir: Path) -> None:
+    """Called at app start: whatever was running when the app last closed is
+    not running any more. Analyzing jobs become errors (delete + restart),
+    renders go back to "none" (just press again), uploads become errors with
+    a hint to check YouTube Studio - the video may or may not have gone up."""
+    root = jobs_root(work_dir)
+    if not root.is_dir():
+        return
+    for d in list(root.iterdir()):
+        job = load_job(work_dir, d.name) if d.is_dir() else None
+        if not job:
+            continue
+
+        def fix(j: dict) -> None:
+            if j.get("status") == "analyzing":
+                j["status"] = "error"
+                j["message"] = "분석 중에 앱이 꺼졌습니다. 이 작업을 삭제하고 다시 시작해 주세요."
+            for b in j.get("blocks", []):
+                if b.get("render", {}).get("status") == "rendering":
+                    b["render"].update(status="none", message="")
+                if b.get("upload", {}).get("status") == "uploading":
+                    b["upload"].update(
+                        status="error",
+                        message="업로드 중에 앱이 꺼졌습니다. 유튜브 스튜디오에 올라갔는지 먼저 확인해 주세요.",
+                    )
+
+        update_job(work_dir, job["id"], fix)
+
+
 def mark_finished_if_done(job: dict) -> None:
     """Sets finished_at once every enabled block is uploaded (clears it if
     that stops being true)."""
