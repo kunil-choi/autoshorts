@@ -327,6 +327,24 @@ def _snap_to_segment_boundaries(
     return snapped
 
 
+# 자동 생성의 기본 구성: 훅성 3개 + 주제 밀착·완결성 2개 = 5개
+DEFAULT_TIER_COUNTS = {"hook": 3, "substantive": 2}
+
+
+def _avoid_text(picked: list[Candidate]) -> str:
+    """Tells a later tier's call which moments earlier tiers already took."""
+    if not picked:
+        return ""
+    lines = "\n".join(
+        f"  - {_sec_to_hms(c.ranges[0].start_sec)} ~ {_sec_to_hms(c.ranges[-1].end_sec)} ({c.title})"
+        for c in picked
+    )
+    return (
+        "\n- 아래 구간은 이미 다른 기준으로 선정됐다. 이 구간과 시간이 겹치거나 같은 순간을 "
+        "다루는 후보는 고르지 마라:\n" + lines
+    )
+
+
 def propose_candidates(
     segments: list[Segment],
     clip_length: ClipLengthPreset,
@@ -334,20 +352,24 @@ def propose_candidates(
     video_title: str = "",
     custom_topic: str | None = None,
     client: anthropic.Anthropic | None = None,
+    counts: dict[str, int] | None = None,
 ) -> list[Candidate]:
-    """tiers is a subset of ("hook", "substantive"), always run with a fixed
-    count of 5 each (matching radihola's original CANDIDATE_TIERS); pass
-    custom_topic to also run the "custom" tier against that topic, which
-    may return fewer than 5 candidates (or none) since it's constrained to
-    an actual topic match rather than a free pick."""
+    """tiers is a subset of ("hook", "substantive"). Each tier asks for
+    `counts[tier]` candidates (default 5 each, matching radihola's original
+    CANDIDATE_TIERS; the auto-generate flow passes DEFAULT_TIER_COUNTS = 3+2).
+    Later tiers are told which moments earlier tiers already picked so the
+    results don't overlap. Pass custom_topic to also run the "custom" tier
+    against that topic, which may return fewer than 5 candidates (or none)
+    since it's constrained to an actual topic match rather than a free pick."""
     client = client or anthropic.Anthropic()
     transcript_text = format_for_prompt(segments)
+    counts = counts or {}
 
     tier_specs: list[tuple[str, int, str]] = []
     if "hook" in tiers:
-        tier_specs.append(("hook", 5, _HOOK_VIRALITY_PHILOSOPHY))
+        tier_specs.append(("hook", counts.get("hook", 5), _HOOK_VIRALITY_PHILOSOPHY))
     if "substantive" in tiers:
-        tier_specs.append(("substantive", 5, _SUBSTANCE_PHILOSOPHY))
+        tier_specs.append(("substantive", counts.get("substantive", 5), _SUBSTANCE_PHILOSOPHY))
     if custom_topic:
         tier_specs.append(("custom", 5, _custom_topic_philosophy(custom_topic, count=5)))
 
@@ -358,7 +380,8 @@ def propose_candidates(
     for tier, count, selection_philosophy in tier_specs:
         candidates.extend(
             _propose_candidates_for_tier(
-                client, transcript_text, clip_length, video_title, tier, count, selection_philosophy,
+                client, transcript_text, clip_length, video_title, tier, count,
+                selection_philosophy + _avoid_text(candidates),
                 cache_transcript=cache_transcript,
             )
         )
