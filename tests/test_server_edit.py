@@ -174,3 +174,73 @@ def test_full_auto_requires_a_link(env):
     client, _ = env
     r = client.post("/auto-jobs", data={"source_type": "url", "url": "", "program_key": "leedaeho"})
     assert r.status_code == 400
+
+
+# ---- the real shared analysis step (only the slow external calls are faked) ----
+
+@pytest.fixture()
+def real_prepare(tmp_path, monkeypatch):
+    """Runs server._prepare_source_and_candidates for real; fakes only the
+    YouTube source, transcript, and Claude calls."""
+    monkeypatch.setattr(server, "WORK_DIR", tmp_path)
+    seen = {}
+
+    class FakeSource:
+        id = "vid"
+        title = "원본 영상"
+        description = "출연: 홍길동 교수"
+        upload_date = "20261104"
+
+        def __init__(self, url):
+            self.url = url
+
+    def fake_transcript(source, work_dir):
+        return _segments(), "captions"
+
+    def fake_propose(segments, clip_length, tiers, title, custom_topic, counts=None):
+        seen["counts"] = counts
+        seen["tiers"] = tiers
+        return [Candidate(ranges=[ClipRange(10.0, 45.0)], title="훅1", summary="요약",
+                          thumbnail_text="첫줄\n둘째줄", reason="r", tier="hook")]
+
+    monkeypatch.setattr(server, "YouTubeSource", FakeSource)
+    monkeypatch.setattr(server, "get_transcript_for_source", fake_transcript)
+    monkeypatch.setattr(server.analyze, "label_speakers", lambda segs: [s.speaker for s in segs])
+    monkeypatch.setattr(server.analyze, "extract_guest_info", lambda title, desc: "홍길동 교수")
+    monkeypatch.setattr(server.analyze, "propose_candidates", fake_propose)
+    monkeypatch.setattr(server.analyze, "refine_boundaries", lambda cands, segs, clip: cands)
+    return seen
+
+
+def test_real_analysis_step_runs_end_to_end_with_tier_counts(real_prepare):
+    with TestClient(server.app) as client:
+        job_id = _start(client)
+        data = client.get(f"/edit-jobs/{job_id}/data").json()
+    assert real_prepare["counts"] == {"hook": 3, "substantive": 2}
+    assert real_prepare["tiers"] == ["hook", "substantive"]
+    assert data["video_title"] == "원본 영상" and data["blocks"][0]["guest_label"] == "홍길동 교수"
+
+
+def test_full_auto_mode_runs_through_to_private_upload(real_prepare, monkeypatch):
+    uploads = []
+    monkeypatch.setattr(server.clipbuild, "build_clip_snapped",
+                        lambda source, ranges, out: (out.write_bytes(b"c") or out, list(ranges)))
+    monkeypatch.setattr(server.analyze, "correct_caption_errors", lambda texts: texts)
+    monkeypatch.setattr(server.render, "render_final",
+                        lambda clip, cues, assets, out, single_camera=False: (out.write_bytes(b"f") or out))
+    monkeypatch.setattr(server.youtube_upload, "upload_short",
+                        lambda path, title, desc, s, t, privacy: uploads.append((title, privacy))
+                        or SimpleNamespace(video_id="v1", url="https://youtu.be/v1"))
+    with TestClient(server.app) as client:
+        r = client.post("/auto-jobs", data={"source_type": "url", "url": "https://youtu.be/x",
+                                            "program_key": "leedaeho", "clip_length": "2min"})
+        assert r.status_code == 200, r.text
+        auto_id = r.json()["auto_job_id"]
+        end = time.time() + 10
+        while time.time() < end:
+            st = client.get(f"/auto-jobs/{auto_id}").json()
+            if st["status"] in ("done", "error"):
+                break
+            time.sleep(0.05)
+    assert st["status"] == "done", st
+    assert uploads == [("[라디올라] 첫줄", "private")]

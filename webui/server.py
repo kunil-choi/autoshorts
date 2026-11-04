@@ -614,6 +614,7 @@ async def _prepare_source_and_candidates(
     clip_length = get_clip_length_preset(clip_length_key)
     selected_tiers = [t for t in tiers if t in ("hook", "substantive")]
     candidates = await loop.run_in_executor(
+        None,
         functools.partial(
             analyze.propose_candidates, segments, clip_length, selected_tiers,
             source.title, custom_topic or None, counts=tier_counts,
