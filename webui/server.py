@@ -63,6 +63,7 @@ from autoshorts.config import (  # noqa: E402
 )
 from autoshorts.scheduler import KST  # noqa: E402
 from autoshorts.sources import UploadedFileSource, YouTubeSource  # noqa: E402
+from autoshorts.sources.youtube_source import _extract_video_id  # noqa: E402
 from autoshorts.transcript import get_transcript_for_source  # noqa: E402
 
 WORK_DIR = REPO_ROOT / "work"
@@ -302,9 +303,13 @@ def _job_view(job: dict, include_segments: bool) -> dict:
         clip_max_sec = get_clip_length_preset(job["clip_length_key"]).max_sec
     except ValueError:
         clip_max_sec = 0
+    try:
+        video_id = _extract_video_id(job["url"])
+    except ValueError:
+        video_id = ""  # not a YouTube link: the page falls back to the confirmation render only
     out = {
         "id": job["id"], "program_name": job["program_name"], "video_title": job["video_title"],
-        "url": job["url"], "status": job["status"], "message": job["message"],
+        "url": job["url"], "video_id": video_id, "status": job["status"], "message": job["message"],
         "stage": editjob.stage_label(job), "title_tag": (_program_of(job).title_tag if _program_of(job) else ""),
         "blocks": [_block_view(job, segments, b, clip_max_sec) for b in job["blocks"]],
         "context_lines": editjob.CONTEXT_LINES,
