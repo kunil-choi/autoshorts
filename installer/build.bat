@@ -81,7 +81,7 @@ if exist "%BACKUP_DIR%\default_assets" (
 )
 if exist "%BACKUP_DIR%\work" (
     xcopy "%BACKUP_DIR%\work" "dist\autoshorts\work\" /E /I /Y >nul
-    echo Existing work folder - library history and scheduler state - carried over.
+    echo Existing work folder - upload records, edit jobs and scheduler state - carried over.
 )
 rmdir /s /q "%BACKUP_DIR%"
 

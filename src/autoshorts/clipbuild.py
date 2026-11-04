@@ -57,11 +57,14 @@ def build_clip(
 
 
 def _snap_range_to_pauses(
-    source: MediaSource, r: ClipRange, part_path: Path
+    source: MediaSource, r: ClipRange, part_path: Path,
+    bound: tuple[float | None, float | None] = (None, None),
 ) -> tuple[Path, ClipRange]:
     """Extract r with a little padding, then cut it at the nearest natural
     pauses (see boundaries.py) so it neither starts nor ends mid-word.
-    Falls back to the plain, exact range if anything about that fails."""
+    `bound` = (lo, hi) absolute times the cut must stay inside - used for the
+    edges next to a deleted line, so snapping can't pull deleted speech back
+    in. Falls back to the plain, exact range if anything about that fails."""
     padded_start = max(0.0, r.start_sec - boundaries.PAD_BEFORE_SEC)
     padded_end = r.end_sec + boundaries.PAD_AFTER_SEC
     padded_path = part_path.with_name(part_path.stem + "_padded.mp4")
@@ -71,6 +74,11 @@ def _snap_range_to_pauses(
         silences = boundaries.detect_silences(padded_path, total)
         cut_start = boundaries.choose_start(silences, r.start_sec - padded_start)
         cut_end = min(boundaries.choose_end(silences, r.end_sec - padded_start), total)
+        lo, hi = bound
+        if lo is not None:
+            cut_start = max(cut_start, lo - padded_start)
+        if hi is not None:
+            cut_end = min(cut_end, hi - padded_start)
         if cut_end - cut_start < boundaries.MIN_CLIP_SEC:
             raise ValueError("snapped clip too short")
         boundaries.trim(padded_path, cut_start, cut_end, part_path)
@@ -83,7 +91,8 @@ def _snap_range_to_pauses(
 
 
 def build_clip_snapped(
-    source: MediaSource, ranges: list[ClipRange], out_path: Path, work_dir: Path | None = None
+    source: MediaSource, ranges: list[ClipRange], out_path: Path, work_dir: Path | None = None,
+    bounds: list[tuple[float | None, float | None]] | None = None,
 ) -> tuple[Path, list[ClipRange]]:
     """build_clip, but each range's start/end is first moved to the nearest
     audio pause. Returns (clip_path, ranges_actually_used): captions must be
@@ -99,7 +108,8 @@ def build_clip_snapped(
     parts: list[Path] = []
     used: list[ClipRange] = []
     for i, r in enumerate(ranges):
-        path, used_range = _snap_range_to_pauses(source, r, work_dir / f"part{i}.mp4")
+        bound = bounds[i] if bounds and i < len(bounds) else (None, None)
+        path, used_range = _snap_range_to_pauses(source, r, work_dir / f"part{i}.mp4", bound)
         parts.append(path)
         used.append(used_range)
 

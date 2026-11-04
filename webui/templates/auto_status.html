@@ -25,8 +25,6 @@
   <div id="overall">준비 중...</div>
   <div id="items"></div>
   <a class="home-link" href="/auto">← 자동 생성으로</a>
-  &nbsp;|&nbsp;
-  <a class="home-link" href="/library">검토함 보기</a>
 
   <script>
     const autoJobId = {{ auto_job_id | tojson }};
@@ -37,7 +35,7 @@
         building: '구간 추출 중',
         rendering: '렌더링 중',
         uploading: '유튜브 업로드 중',
-        done: '완료 (비공개)',
+        done: '완료 (비공개 업로드됨)',
         error: '오류',
       }[status] || status;
     }
@@ -62,7 +60,7 @@
           : '';
         div.innerHTML = `<div class="title">${i + 1}. ${item.title || ''}</div>
           <div class="msg">${statusLabel(item.status)}${item.message ? ' - ' + item.message : ''}</div>
-          ${link}`;
+          ${link}${item.status === 'done' && item.youtube_url ? ` · <a href="https://studio.youtube.com/video/${item.youtube_url.split('v=')[1] || item.youtube_url.split('/').pop()}/edit" target="_blank" rel="noopener">스튜디오에서 열기 (공개 전환)</a>` : ''}`;
         itemsEl.appendChild(div);
       });
 
@@ -71,6 +69,5 @@
     }
     poll();
   </script>
-  <script src="/static/notify.js"></script>
 </body>
 </html>
