@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, replace
 
 import anthropic
 
-from .config import MODEL, ClipLengthPreset
+from .config import LIGHT_MODEL, MODEL, ClipLengthPreset
 from .transcript import Segment, format_for_prompt
 
 SYSTEM_PROMPT_TEMPLATE = """\
@@ -639,6 +639,18 @@ GUEST_INFO_TOOL = {
 }
 
 
+def _create_with_fallback(client: anthropic.Anthropic, model: str, **kwargs):
+    """messages.create on `model`; if that model can't be used (unknown/unavailable
+    id, API error), retry once on the main MODEL so a cheaper-model hiccup never
+    degrades the result. No retry when `model` already is MODEL."""
+    try:
+        return client.messages.create(model=model, **kwargs)
+    except Exception:
+        if model == MODEL:
+            raise
+        return client.messages.create(model=MODEL, **kwargs)
+
+
 def extract_guest_info(
     video_title: str, description: str | None, client: anthropic.Anthropic | None = None
 ) -> str:
@@ -653,8 +665,9 @@ def extract_guest_info(
         return ""
     client = client or anthropic.Anthropic()
     try:
-        message = client.messages.create(
-            model=MODEL,
+        message = _create_with_fallback(
+            client,
+            LIGHT_MODEL,
             max_tokens=1024,
             system=(
                 "영상의 제목과 설명을 보고, 그 영상에 초대되어 나온 출연자(게스트)의 "

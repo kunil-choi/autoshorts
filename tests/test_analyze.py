@@ -93,3 +93,62 @@ def test_single_tier_run_skips_the_cache_write():
     propose_candidates(_segments(), _preset(), ["hook"], client=client)
     assert "cache_control" not in client.calls[0]["system"][0]
 
+
+
+# --- extract_guest_info uses the light model, with fallback to MODEL ---------
+
+class _FakeMessages:
+    """messages.create stand-in: records the model per call; `fail_models`
+    raise, everything else returns a found-guest tool_use block."""
+
+    def __init__(self, fail_models=()):
+        self.models = []
+        self.fail_models = set(fail_models)
+
+    def create(self, model, **kwargs):
+        self.models.append(model)
+        if model in self.fail_models:
+            raise RuntimeError("model unavailable")
+        block = SimpleNamespace(
+            type="tool_use",
+            input={"found": True, "name": "김은비", "title": "변호사", "org": "손해보험협회"},
+        )
+        return SimpleNamespace(content=[block])
+
+
+def test_extract_guest_info_uses_light_model():
+    from autoshorts import analyze
+
+    fake = SimpleNamespace(messages=_FakeMessages())
+    out = analyze.extract_guest_info("제목", "게스트: 김은비 변호사", client=fake)
+    assert out == "김은비 변호사 / 손해보험협회"
+    assert fake.messages.models == [analyze.LIGHT_MODEL]
+
+
+def test_extract_guest_info_falls_back_to_main_model_when_light_model_fails():
+    from autoshorts import analyze
+
+    if analyze.LIGHT_MODEL == analyze.MODEL:
+        return  # split turned off via env - nothing to fall back from
+    fake = SimpleNamespace(messages=_FakeMessages(fail_models={analyze.LIGHT_MODEL}))
+    out = analyze.extract_guest_info("제목", "게스트: 김은비 변호사", client=fake)
+    assert out == "김은비 변호사 / 손해보험협회"
+    assert fake.messages.models == [analyze.LIGHT_MODEL, analyze.MODEL]
+
+
+def test_extract_guest_info_empty_description_makes_no_call():
+    from autoshorts import analyze
+
+    fake = SimpleNamespace(messages=_FakeMessages())
+    assert analyze.extract_guest_info("제목", None, client=fake) == ""
+    assert fake.messages.models == []
+
+
+def test_other_steps_still_use_main_model():
+    import inspect
+    from autoshorts import analyze
+
+    # only extract_guest_info may reference LIGHT_MODEL
+    for fn in (analyze.label_speakers, analyze.correct_caption_errors,
+               analyze._refine_one, analyze._propose_candidates_for_tier):
+        assert "LIGHT_MODEL" not in inspect.getsource(fn), fn.__name__

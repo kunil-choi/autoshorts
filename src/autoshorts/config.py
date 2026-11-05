@@ -47,6 +47,13 @@ def get_clip_length_preset(key: str) -> ClipLengthPreset:
 # what actually makes a blank .env line fall back to this default.
 MODEL = os.environ.get("AUTOSHORTS_MODEL") or "claude-sonnet-5"
 
+# Cheaper model for plain extraction tasks that read a short title/description
+# (currently only analyze.extract_guest_info). Quality-sensitive steps -
+# candidate selection, boundary refinement, caption correction, speaker
+# labelling - keep using MODEL. Set AUTOSHORTS_LIGHT_MODEL to the same value as
+# AUTOSHORTS_MODEL to turn the split off.
+LIGHT_MODEL = os.environ.get("AUTOSHORTS_LIGHT_MODEL") or "claude-haiku-5-5"
+
 
 @dataclass(frozen=True)
 class ProgramConfig:
