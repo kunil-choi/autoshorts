@@ -24,12 +24,14 @@ class ClipLengthPreset:
 
 
 CLIP_LENGTH_PRESETS: tuple[ClipLengthPreset, ...] = (
+    ClipLengthPreset("30sec", "30초 이내", 10, 30),
+    ClipLengthPreset("45sec", "45초 이내", 10, 45),
     ClipLengthPreset("1min", "1분 이내", 10, 60),
     ClipLengthPreset("2min", "2분 이내", 10, 120),
     ClipLengthPreset("3min", "3분 이내", 10, 180),
 )
 
-DEFAULT_CLIP_LENGTH_PRESET = "2min"
+DEFAULT_CLIP_LENGTH_PRESET = "1min"
 
 
 def get_clip_length_preset(key: str) -> ClipLengthPreset:
