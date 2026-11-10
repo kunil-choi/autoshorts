@@ -514,7 +514,7 @@ async def _run_block_upload(job_id: str, index: int) -> None:
         block = job["blocks"][index]
         program = _program_of(job)
         final_path = editjob.block_dir(WORK_DIR, job_id, index) / "final.mp4"
-        title = block["title"].strip() or block["thumbnail_text"].split("\n", 1)[0].strip() or "쇼츠"
+        title = block["title"].strip() or editjob.title_from_thumbnail(block["thumbnail_text"]) or "쇼츠"
         upload_title = f"[{program.title_tag}] {title}" if program and program.title_tag else title
         description = block["summary"]
         if block["shoot_date"]:
@@ -795,7 +795,7 @@ async def _run_auto_pipeline(
                 )
 
                 item.update(status="uploading", message="유튜브에 비공개로 업로드 중...")
-                title_line1 = candidate.thumbnail_text.split("\n", 1)[0].strip() or candidate.title
+                title_line1 = editjob.title_from_thumbnail(candidate.thumbnail_text, candidate.title)
                 description = candidate.summary
                 if shoot_date:
                     description += f"\n[영상 {date_kind} 날짜: {shoot_date}]"

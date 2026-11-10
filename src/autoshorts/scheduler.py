@@ -48,12 +48,14 @@ KST = ZoneInfo("Asia/Seoul")
 # program for the day - the VOD doesn't always land exactly check_delay_min
 # after the broadcast ends.
 GIVE_UP_AFTER_HOURS = 4
-POLL_INTERVAL_SEC = 600  # 10 minutes
+POLL_INTERVAL_SEC = 1800  # 30 minutes
 # how many of the playlist's newest videos to look at per poll. Some
 # programs (이대호) upload each day as separate 1부/2부 videos, so more than
 # one new video can show up per day.
-PLAYLIST_SCAN_COUNT = 5
+PLAYLIST_SCAN_COUNT = 8
 SEEN_IDS_KEEP = 50
+# 새 영상 알림으로 잡는 기간(일): 오늘 + 어제 = 이틀치. 더 오래된 영상은 무시한다.
+KEEP_DAYS = 2
 
 
 @dataclass(frozen=True)
@@ -167,23 +169,16 @@ def has_given_up_for_today(program: ProgramConfig, now: datetime) -> bool:
 async def _poll_once(
     work_dir: Path, state: dict, program: ProgramConfig, now: datetime, on_new_video: OnNewVideo,
 ) -> None:
-    today = now.date().isoformat()
-    prog_state = state.setdefault(program.key, {})
-    if prog_state.get("handled_date") == today:
-        return  # today's polling window is already closed
+    """One look at the program's playlist.
 
-    if not should_check_now(program, now):
-        if has_given_up_for_today(program, now):
-            # window over. If shorts were made today, keep that result;
-            # otherwise record that nothing showed up.
-            if prog_state.get("processed_date") == today:
-                print(f"[scheduler] {program.name}: 오늘({today}) 감시를 마칩니다.")
-            else:
-                print(f"[scheduler] {program.name}: 오늘({today}) 영상을 찾지 못해 포기합니다.")
-                prog_state["result"] = "not_found"
-            prog_state["handled_date"] = today
-            _save_state(work_dir, state)
-        return
+    Videos published today or yesterday (KEEP_DAYS days) that haven't been
+    seen yet are reported, at any time of day - not only inside the
+    post-broadcast window. That matters for programs whose VOD lands in the
+    evening (경제쇼): if the app was closed then, the video is still picked up
+    the next time the app runs, instead of being skipped for good.
+    """
+    today = now.date()
+    prog_state = state.setdefault(program.key, {})
 
     videos = latest_playlist_videos(program.playlist_url)
     if not videos:
@@ -203,14 +198,14 @@ async def _poll_once(
             return
     seen = prog_state["seen_ids"]
 
-    # Only videos published today (broadcast day) are handled, and only ONE
-    # video per part (1부 / 2부) per day. Anything older that merely isn't in
-    # seen_ids yet (app was off, state lost, ...) is marked seen and skipped.
-    done_parts = prog_state.get("processed_parts", {})
-    if done_parts.get("date") != today:
-        done_parts = {"date": today, "parts": []}
-        prog_state["processed_parts"] = done_parts
-    parts_done: list[str] = done_parts["parts"]
+    # Only ONE video per part (1부 / 2부) per broadcast date is handled.
+    # "date:part" entries older than the keep window are dropped.
+    oldest = today - timedelta(days=KEEP_DAYS - 1)
+    parts_done: list[str] = [
+        k for k in prog_state.get("processed_parts", [])
+        if isinstance(k, str) and k.split(":", 1)[0] >= oldest.isoformat()
+    ]
+    prog_state["processed_parts"] = parts_done
 
     todo: list[tuple[str, PlaylistVideo]] = []  # newest first
     for video in videos:
@@ -219,11 +214,11 @@ async def _poll_once(
         published = video_broadcast_date(video.id)
         if published is None:
             continue  # unknown date: don't mark seen, look again next poll
-        if published != now.date():
-            print(f"[scheduler] {program.name}: 오늘 영상이 아니라 건너뜀 - {video.title} ({published})")
+        if published < oldest or published > today:
+            print(f"[scheduler] {program.name}: 최근 {KEEP_DAYS}일 영상이 아니라 건너뜀 - {video.title} ({published})")
             seen.append(video.id)
             continue
-        key = part_key(video.title)
+        key = f"{published.isoformat()}:{part_key(video.title)}"
         if key in parts_done or any(k == key for k, _ in todo):
             print(f"[scheduler] {program.name}: 같은 파트({key}) 영상이 이미 있어 건너뜀 - {video.title}")
             seen.append(video.id)
@@ -238,7 +233,7 @@ async def _poll_once(
         del seen[:-SEEN_IDS_KEEP]
         parts_done.append(key)
         prog_state["last_video_id"] = video.id
-        prog_state["processed_date"] = today
+        prog_state["processed_date"] = today.isoformat()
         prog_state["result"] = "processing"
         _save_state(work_dir, state)
         try:

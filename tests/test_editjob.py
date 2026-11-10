@@ -26,7 +26,7 @@ def test_build_blocks_maps_candidate_to_segment_span():
     segs = _segs()
     b = _block(segs)
     assert (b["first"], b["last"]) == (2, 9)
-    assert b["title"] == "첫줄" and b["thumbnail_text"] == "첫줄\n둘째줄"
+    assert b["title"] == "첫줄 둘째줄" and b["thumbnail_text"] == "첫줄\n둘째줄"
     assert b["tier_label"]
 
 
@@ -154,3 +154,18 @@ def test_pending_videos_dedupe(tmp_path):
     assert len(editjob.pending_list(tmp_path)) == 1
     editjob.pending_remove(tmp_path, "https://x/v1")
     assert editjob.pending_list(tmp_path) == []
+
+
+def test_title_joins_both_thumbnail_lines():
+    assert editjob.title_from_thumbnail("첫째 줄\n둘째 줄") == "첫째 줄 둘째 줄"
+    assert editjob.title_from_thumbnail("한 줄만") == "한 줄만"
+    assert editjob.title_from_thumbnail("", "대체") == "대체"
+
+
+def test_pending_older_than_two_days_is_dropped(tmp_path):
+    editjob.pending_add(tmp_path, "p", "old", "https://x/old", "t")
+    items = editjob.pending_list(tmp_path)
+    items[0]["found_at"] = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    editjob._write_json(editjob._pending_path(tmp_path), items)
+    editjob.pending_add(tmp_path, "p", "new", "https://x/new", "t")
+    assert [i["video_id"] for i in editjob.pending_list(tmp_path)] == ["new"]
