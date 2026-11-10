@@ -282,15 +282,27 @@ def _pending_path(work_dir: Path) -> Path:
     return work_dir / "pending_videos.json"
 
 
+PENDING_KEEP_DAYS = 2  # 새 영상 알림은 이틀치만 보여주고 이후 자동 삭제
+
+
+def _pending_fresh(item: dict) -> bool:
+    try:
+        found = datetime.fromisoformat(item["found_at"])
+    except (KeyError, ValueError, TypeError):
+        return True
+    return datetime.now(timezone.utc) - found < timedelta(days=PENDING_KEEP_DAYS)
+
+
 def pending_list(work_dir: Path) -> list[dict]:
     path = _pending_path(work_dir)
     with _lock:
         if not path.is_file():
             return []
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            items = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return []
+    return [i for i in items if _pending_fresh(i)]
 
 
 def pending_add(work_dir: Path, program_key: str, video_id: str, url: str, title: str) -> None:
@@ -328,6 +340,12 @@ def _span_of(c: Candidate, segments: list[Segment]) -> tuple[int, int] | None:
     return (idxs[0], idxs[-1]) if idxs else None
 
 
+def title_from_thumbnail(thumbnail_text: str, fallback: str = "") -> str:
+    """업로드 제목 = 썸네일 문구의 모든 줄을 공백으로 이어 붙인 것 (2줄이면 2줄 다)."""
+    joined = " ".join(p.strip() for p in (thumbnail_text or "").splitlines() if p.strip())
+    return joined or fallback
+
+
 def build_blocks(
     candidates: list[Candidate],
     segments: list[Segment],
@@ -343,7 +361,7 @@ def build_blocks(
             continue
         first, last = span
         thumb = c.thumbnail_text or ""
-        title = thumb.split("\n", 1)[0].strip() or c.title
+        title = title_from_thumbnail(thumb, c.title)
         blocks.append({
             "index": len(blocks),
             "enabled": True,
