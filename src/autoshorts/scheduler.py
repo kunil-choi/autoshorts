@@ -48,7 +48,7 @@ KST = ZoneInfo("Asia/Seoul")
 # program for the day - the VOD doesn't always land exactly check_delay_min
 # after the broadcast ends.
 GIVE_UP_AFTER_HOURS = 4
-POLL_INTERVAL_SEC = 600  # 10 minutes
+POLL_INTERVAL_SEC = 1800  # 30 minutes
 # how many of the playlist's newest videos to look at per poll. Some
 # programs (이대호) upload each day as separate 1부/2부 videos, so more than
 # one new video can show up per day.
